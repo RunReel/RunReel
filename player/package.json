@@ -1,0 +1,18 @@
+{
+  "name": "@runreel/player",
+  "version": "0.0.0",
+  "private": true,
+  "description": "RunReel's browser player: rebuilds trace steps and renders data structures.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --minify --format=iife --global-name=RunReelPlayer --target=es2020 --outfile=dist/player.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.3"
+  }
+}

@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/RunReel/RunReel/blob/main/schema/trace-v1.schema.json",
+  "title": "RunReel trace, version 1",
+  "description": "One run of a program, as a list of steps. Keyframe steps hold the full state; the steps between them hold only what changed. A keyframe is a delta from the empty state.",
+  "type": "object",
+  "properties": {
+    "schema": { "const": 1 },
+    "language": { "const": "python" },
+    "source": {
+      "type": "object",
+      "properties": {
+        "file": { "type": "string" },
+        "text": { "type": "string" },
+        "entry": { "type": "string" }
+      },
+      "required": ["file", "text", "entry"],
+      "additionalProperties": false
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "prefixItems": [{ "$ref": "#/$defs/step", "required": ["key"] }],
+      "items": { "$ref": "#/$defs/step" }
+    },
+    "result": { "$ref": "#/$defs/value" },
+    "error": { "type": "string" },
+    "stdout": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "prefixItems": [{ "$ref": "#/$defs/id" }, { "type": "string" }],
+        "minItems": 2,
+        "maxItems": 2
+      }
+    },
+    "truncated": { "const": true }
+  },
+  "required": ["schema", "language", "source", "steps"],
+  "additionalProperties": false,
+  "$defs": {
+    "id": { "type": "integer", "minimum": 0 },
+    "value": {
+      "description": "A JSON scalar, or a tagged object for a heap reference or a number JSON can't hold.",
+      "oneOf": [
+        { "type": ["null", "boolean", "number", "string"] },
+        {
+          "type": "object",
+          "properties": { "ref": { "$ref": "#/$defs/id" } },
+          "required": ["ref"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "inf": { "enum": [1, -1] } },
+          "required": ["inf"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "nan": { "const": 1 } },
+          "required": ["nan"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "bigint": { "type": "string", "pattern": "^-?[0-9]+$" } },
+          "required": ["bigint"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "pair": {
+      "type": "array",
+      "prefixItems": [{ "$ref": "#/$defs/value" }, { "$ref": "#/$defs/value" }],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "object": {
+      "description": "A heap object. seq and map hold items (map items are [key, value] pairs); more counts the items left out beyond the size cap.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "t": { "const": "seq" },
+            "cls": { "type": "string" },
+            "items": { "type": "array", "items": { "$ref": "#/$defs/value" } },
+            "more": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["t", "cls", "items"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "t": { "const": "map" },
+            "cls": { "type": "string" },
+            "items": { "type": "array", "items": { "$ref": "#/$defs/pair" } },
+            "more": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["t", "cls", "items"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "t": { "const": "obj" },
+            "cls": { "type": "string" },
+            "fields": { "type": "object", "additionalProperties": { "$ref": "#/$defs/value" } }
+          },
+          "required": ["t", "cls", "fields"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "t": { "const": "repr" },
+            "cls": { "type": "string" },
+            "v": { "type": "string" }
+          },
+          "required": ["t", "cls", "v"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "itemPatch": {
+      "description": "Changes to a seq or map, applied in order: resize items to len, overwrite [index, item] entries, then set more (0 removes it).",
+      "type": "object",
+      "properties": {
+        "len": { "type": "integer", "minimum": 0 },
+        "set": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              { "$ref": "#/$defs/id" },
+              { "anyOf": [{ "$ref": "#/$defs/value" }, { "$ref": "#/$defs/pair" }] }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "more": { "type": "integer", "minimum": 0 }
+      },
+      "minProperties": 1,
+      "additionalProperties": false
+    },
+    "framePatch": {
+      "description": "Changes to one call frame. fn is sent when the frame first appears; line only when it can't be inferred (the top frame's line is the step's line).",
+      "type": "object",
+      "properties": {
+        "fn": { "type": "string" },
+        "line": { "type": "integer", "minimum": 0 },
+        "set": { "type": "object", "additionalProperties": { "$ref": "#/$defs/value" } },
+        "del": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "step": {
+      "type": "object",
+      "properties": {
+        "ev": { "enum": ["call", "line", "return", "exception"] },
+        "line": { "type": "integer", "minimum": 0 },
+        "key": { "const": true },
+        "stack": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        "frames": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[0-9]+$" },
+          "additionalProperties": { "$ref": "#/$defs/framePatch" }
+        },
+        "heap": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[0-9]+$" },
+          "additionalProperties": {
+            "oneOf": [{ "$ref": "#/$defs/object" }, { "$ref": "#/$defs/itemPatch" }]
+          }
+        },
+        "gc": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        "ret": { "$ref": "#/$defs/value" },
+        "exc": { "type": "string" }
+      },
+      "required": ["ev", "line"],
+      "additionalProperties": false
+    }
+  }
+}

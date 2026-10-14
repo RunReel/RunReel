@@ -1,0 +1,885 @@
+{
+ "schema": 1,
+ "language": "python",
+ "source": {
+  "file": "bst_insert.py",
+  "text": "class Node:\n    def __init__(self, key):\n        self.key = key\n        self.left = None\n        self.right = None\n\n\ndef insert(root, key):\n    if root is None:\n        return Node(key)\n    node = root\n    while True:\n        if key < node.key:\n            if node.left is None:\n                node.left = Node(key)\n                return root\n            node = node.left\n        else:\n            if node.right is None:\n                node.right = Node(key)\n                return root\n            node = node.right\n\n\ndef build(keys):\n    root = None\n    for key in keys:\n        root = insert(root, key)\n    return root\n\n\nif __name__ == \"__main__\":\n    print(build([5, 3, 8, 1, 4]).key)\n",
+  "entry": "build([5, 3, 8, 1, 4])"
+ },
+ "steps": [
+  {
+   "ev": "call",
+   "line": 25,
+   "key": true,
+   "stack": [
+    1
+   ],
+   "frames": {
+    "1": {
+     "fn": "build",
+     "set": {
+      "keys": {
+       "ref": 1
+      }
+     }
+    }
+   },
+   "heap": {
+    "1": {
+     "t": "seq",
+     "cls": "list",
+     "items": [
+      5,
+      3,
+      8,
+      1,
+      4
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 26
+  },
+  {
+   "ev": "line",
+   "line": 27,
+   "frames": {
+    "1": {
+     "set": {
+      "root": null
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 28,
+   "frames": {
+    "1": {
+     "set": {
+      "key": 5
+     }
+    }
+   }
+  },
+  {
+   "ev": "call",
+   "line": 8,
+   "stack": [
+    1,
+    2
+   ],
+   "frames": {
+    "2": {
+     "fn": "insert",
+     "set": {
+      "root": null,
+      "key": 5
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 9
+  },
+  {
+   "ev": "line",
+   "line": 10
+  },
+  {
+   "ev": "call",
+   "line": 2,
+   "stack": [
+    1,
+    2,
+    3
+   ],
+   "frames": {
+    "3": {
+     "fn": "__init__",
+     "set": {
+      "self": {
+       "ref": 2
+      },
+      "key": 5
+     }
+    }
+   },
+   "heap": {
+    "2": {
+     "t": "obj",
+     "cls": "Node",
+     "fields": {}
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 3
+  },
+  {
+   "ev": "line",
+   "line": 4,
+   "heap": {
+    "2": {
+     "set": {
+      "key": 5
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 5,
+   "heap": {
+    "2": {
+     "set": {
+      "left": null
+     }
+    }
+   }
+  },
+  {
+   "ev": "return",
+   "line": 5,
+   "heap": {
+    "2": {
+     "set": {
+      "right": null
+     }
+    }
+   },
+   "ret": null
+  },
+  {
+   "ev": "return",
+   "line": 10,
+   "stack": [
+    1,
+    2
+   ],
+   "ret": {
+    "ref": 2
+   }
+  },
+  {
+   "ev": "line",
+   "line": 27,
+   "stack": [
+    1
+   ],
+   "frames": {
+    "1": {
+     "set": {
+      "root": {
+       "ref": 2
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 28,
+   "frames": {
+    "1": {
+     "set": {
+      "key": 3
+     }
+    }
+   }
+  },
+  {
+   "ev": "call",
+   "line": 8,
+   "stack": [
+    1,
+    4
+   ],
+   "frames": {
+    "4": {
+     "fn": "insert",
+     "set": {
+      "root": {
+       "ref": 2
+      },
+      "key": 3
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 9
+  },
+  {
+   "ev": "line",
+   "line": 11
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "frames": {
+    "4": {
+     "set": {
+      "node": {
+       "ref": 2
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 13
+  },
+  {
+   "ev": "line",
+   "line": 14
+  },
+  {
+   "ev": "line",
+   "line": 15
+  },
+  {
+   "ev": "call",
+   "line": 2,
+   "stack": [
+    1,
+    4,
+    5
+   ],
+   "frames": {
+    "5": {
+     "fn": "__init__",
+     "set": {
+      "self": {
+       "ref": 3
+      },
+      "key": 3
+     }
+    }
+   },
+   "heap": {
+    "3": {
+     "t": "obj",
+     "cls": "Node",
+     "fields": {}
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 3
+  },
+  {
+   "ev": "line",
+   "line": 4,
+   "heap": {
+    "3": {
+     "set": {
+      "key": 3
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 5,
+   "heap": {
+    "3": {
+     "set": {
+      "left": null
+     }
+    }
+   }
+  },
+  {
+   "ev": "return",
+   "line": 5,
+   "heap": {
+    "3": {
+     "set": {
+      "right": null
+     }
+    }
+   },
+   "ret": null
+  },
+  {
+   "ev": "line",
+   "line": 16,
+   "stack": [
+    1,
+    4
+   ],
+   "heap": {
+    "2": {
+     "set": {
+      "left": {
+       "ref": 3
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "return",
+   "line": 16,
+   "ret": {
+    "ref": 2
+   }
+  },
+  {
+   "ev": "line",
+   "line": 27,
+   "stack": [
+    1
+   ]
+  },
+  {
+   "ev": "line",
+   "line": 28,
+   "frames": {
+    "1": {
+     "set": {
+      "key": 8
+     }
+    }
+   }
+  },
+  {
+   "ev": "call",
+   "line": 8,
+   "stack": [
+    1,
+    6
+   ],
+   "frames": {
+    "6": {
+     "fn": "insert",
+     "set": {
+      "root": {
+       "ref": 2
+      },
+      "key": 8
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 9
+  },
+  {
+   "ev": "line",
+   "line": 11
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "frames": {
+    "6": {
+     "set": {
+      "node": {
+       "ref": 2
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 13
+  },
+  {
+   "ev": "line",
+   "line": 19
+  },
+  {
+   "ev": "line",
+   "line": 20
+  },
+  {
+   "ev": "call",
+   "line": 2,
+   "stack": [
+    1,
+    6,
+    7
+   ],
+   "frames": {
+    "7": {
+     "fn": "__init__",
+     "set": {
+      "self": {
+       "ref": 4
+      },
+      "key": 8
+     }
+    }
+   },
+   "heap": {
+    "4": {
+     "t": "obj",
+     "cls": "Node",
+     "fields": {}
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 3
+  },
+  {
+   "ev": "line",
+   "line": 4,
+   "heap": {
+    "4": {
+     "set": {
+      "key": 8
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 5,
+   "heap": {
+    "4": {
+     "set": {
+      "left": null
+     }
+    }
+   }
+  },
+  {
+   "ev": "return",
+   "line": 5,
+   "heap": {
+    "4": {
+     "set": {
+      "right": null
+     }
+    }
+   },
+   "ret": null
+  },
+  {
+   "ev": "line",
+   "line": 21,
+   "stack": [
+    1,
+    6
+   ],
+   "heap": {
+    "2": {
+     "set": {
+      "right": {
+       "ref": 4
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "return",
+   "line": 21,
+   "ret": {
+    "ref": 2
+   }
+  },
+  {
+   "ev": "line",
+   "line": 27,
+   "stack": [
+    1
+   ]
+  },
+  {
+   "ev": "line",
+   "line": 28,
+   "frames": {
+    "1": {
+     "set": {
+      "key": 1
+     }
+    }
+   }
+  },
+  {
+   "ev": "call",
+   "line": 8,
+   "stack": [
+    1,
+    8
+   ],
+   "frames": {
+    "8": {
+     "fn": "insert",
+     "set": {
+      "root": {
+       "ref": 2
+      },
+      "key": 1
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 9
+  },
+  {
+   "ev": "line",
+   "line": 11
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "frames": {
+    "8": {
+     "set": {
+      "node": {
+       "ref": 2
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 13
+  },
+  {
+   "ev": "line",
+   "line": 14
+  },
+  {
+   "ev": "line",
+   "line": 17
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "frames": {
+    "8": {
+     "set": {
+      "node": {
+       "ref": 3
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 13
+  },
+  {
+   "ev": "line",
+   "line": 14
+  },
+  {
+   "ev": "line",
+   "line": 15
+  },
+  {
+   "ev": "call",
+   "line": 2,
+   "stack": [
+    1,
+    8,
+    9
+   ],
+   "frames": {
+    "9": {
+     "fn": "__init__",
+     "set": {
+      "self": {
+       "ref": 5
+      },
+      "key": 1
+     }
+    }
+   },
+   "heap": {
+    "5": {
+     "t": "obj",
+     "cls": "Node",
+     "fields": {}
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 3
+  },
+  {
+   "ev": "line",
+   "line": 4,
+   "heap": {
+    "5": {
+     "set": {
+      "key": 1
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 5,
+   "heap": {
+    "5": {
+     "set": {
+      "left": null
+     }
+    }
+   }
+  },
+  {
+   "ev": "return",
+   "line": 5,
+   "heap": {
+    "5": {
+     "set": {
+      "right": null
+     }
+    }
+   },
+   "ret": null
+  },
+  {
+   "ev": "line",
+   "line": 16,
+   "stack": [
+    1,
+    8
+   ],
+   "heap": {
+    "3": {
+     "set": {
+      "left": {
+       "ref": 5
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "return",
+   "line": 16,
+   "ret": {
+    "ref": 2
+   }
+  },
+  {
+   "ev": "line",
+   "line": 27,
+   "stack": [
+    1
+   ]
+  },
+  {
+   "ev": "line",
+   "line": 28,
+   "frames": {
+    "1": {
+     "set": {
+      "key": 4
+     }
+    }
+   }
+  },
+  {
+   "ev": "call",
+   "line": 8,
+   "stack": [
+    1,
+    10
+   ],
+   "frames": {
+    "10": {
+     "fn": "insert",
+     "set": {
+      "root": {
+       "ref": 2
+      },
+      "key": 4
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 9
+  },
+  {
+   "ev": "line",
+   "line": 11
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "frames": {
+    "10": {
+     "set": {
+      "node": {
+       "ref": 2
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 13
+  },
+  {
+   "ev": "line",
+   "line": 14
+  },
+  {
+   "ev": "line",
+   "line": 17
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "frames": {
+    "10": {
+     "set": {
+      "node": {
+       "ref": 3
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 13
+  },
+  {
+   "ev": "line",
+   "line": 19
+  },
+  {
+   "ev": "line",
+   "line": 20
+  },
+  {
+   "ev": "call",
+   "line": 2,
+   "stack": [
+    1,
+    10,
+    11
+   ],
+   "frames": {
+    "11": {
+     "fn": "__init__",
+     "set": {
+      "self": {
+       "ref": 6
+      },
+      "key": 4
+     }
+    }
+   },
+   "heap": {
+    "6": {
+     "t": "obj",
+     "cls": "Node",
+     "fields": {}
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 3
+  },
+  {
+   "ev": "line",
+   "line": 4,
+   "heap": {
+    "6": {
+     "set": {
+      "key": 4
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 5,
+   "heap": {
+    "6": {
+     "set": {
+      "left": null
+     }
+    }
+   }
+  },
+  {
+   "ev": "return",
+   "line": 5,
+   "heap": {
+    "6": {
+     "set": {
+      "right": null
+     }
+    }
+   },
+   "ret": null
+  },
+  {
+   "ev": "line",
+   "line": 21,
+   "stack": [
+    1,
+    10
+   ],
+   "heap": {
+    "3": {
+     "set": {
+      "right": {
+       "ref": 6
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "return",
+   "line": 21,
+   "ret": {
+    "ref": 2
+   }
+  },
+  {
+   "ev": "line",
+   "line": 27,
+   "stack": [
+    1
+   ]
+  },
+  {
+   "ev": "line",
+   "line": 29
+  },
+  {
+   "ev": "return",
+   "line": 29,
+   "ret": {
+    "ref": 2
+   }
+  }
+ ],
+ "result": {
+  "ref": 2
+ }
+}

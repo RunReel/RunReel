@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import os
 from pathlib import Path
@@ -93,6 +94,31 @@ def test_patches_are_shorter_than_the_objects_they_stand_for(states: list[State]
         for oid, entry in step.get("heap", {}).items():
             if "t" not in entry:
                 assert json_size(entry) < json_size(state["heap"][int(oid)])
+
+
+def shared(states: list[State]) -> list[State]:
+    """The same run, but where a value equals the one at the same place a step earlier, it is
+    that very object, as a tracer that reuses unchanged values would make it."""
+    out = [states[0]]
+    for state in states[1:]:
+        prev, state = out[-1]["heap"], copy.deepcopy(state)
+        for oid, obj in state["heap"].items():
+            old = prev.get(oid)
+            if old is not None and canonical(old) == canonical(obj):
+                state["heap"][oid] = old
+            elif old is not None and "items" in old and "items" in obj:
+                pairs = zip(old["items"], obj["items"], strict=False)
+                kept = [o if canonical(o) == canonical(n) else n for o, n in pairs]
+                obj["items"][: len(kept)] = kept
+        out.append(state)
+    return out
+
+
+@given(state_sequences())
+def test_shared_values_encode_like_copies(states: list[State]) -> None:
+    run = shared(states)
+    assert canonical(encode(run, key_every=4)) == canonical(encode(states, key_every=4))
+    assert canonical(list(iter_states(encode(run)))) == canonical(states)
 
 
 N = list(range(100))

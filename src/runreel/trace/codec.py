@@ -10,7 +10,8 @@ import copy
 import json
 import math
 from collections.abc import Iterable, Iterator, Sequence
-from itertools import takewhile
+from itertools import compress, count
+from operator import is_not
 from typing import Any, cast
 
 from runreel.trace.model import (
@@ -26,6 +27,7 @@ from runreel.trace.model import (
 
 KEY_EVERY = 100
 MAX_EDITS = 16  # a list diff stops looking past this many removed plus inserted items
+SMALL_STRETCH = 8  # a changed stretch this short is sent as one splice, without a diff
 
 
 def encode(states: Iterable[State], *, key_every: int = KEY_EVERY) -> list[Step]:
@@ -132,6 +134,8 @@ def _frame_patch(old: Frame | None, new: Frame, top_line: int | None) -> FramePa
 def _heap_entry(old: HeapObject, new: HeapObject) -> HeapObject | ObjectPatch | None:
     """What to send for an object that already existed: nothing if it hasn't changed, else a
     patch if that is shorter than the whole object, else the object."""
+    if old is new:  # a tracer that reuses unchanged objects makes this the common case
+        return None
     if new["t"] == "repr" or (old["t"], old["cls"]) != (new["t"], new["cls"]):
         return None if _same(old, new) else new
     patch: ObjectPatch = {}
@@ -167,12 +171,13 @@ def _item_ops(old: list[Any], new: list[Any]) -> list[list[Any]]:
     """Ops that turn the old items into the new: the fewest edits or one splice of the
     stretch that changed, whichever is shorter. Matching items at both ends are skipped."""
     lo = _matching(old, new)
-    hi = _matching(reversed(old[lo:]), reversed(new[lo:]))
+    hi = _matching(old[lo:][::-1], new[lo:][::-1])
     a, b = old[lo : len(old) - hi], new[lo : len(new) - hi]
     if not a and not b:
         return []
     splice: list[list[Any]] = [[lo, b[0]]] if len(a) == len(b) == 1 else [[lo, len(a), b]]
-    runs = _myers(a, b)
+    # Diffing a short stretch could save only a few bytes, so it isn't worth the time.
+    runs = None if len(a) + len(b) <= SMALL_STRETCH else _myers(a, b)
     if runs is None or len(runs) == 1:  # a single run is the whole stretch, so it is the splice
         return splice
     ops: list[list[Any]] = [
@@ -234,9 +239,13 @@ def _runs(rounds: list[dict[int, int]], n: int, m: int) -> list[list[int]]:
     return runs[::-1]
 
 
-def _matching(xs: Iterable[Any], ys: Iterable[Any]) -> int:
-    """How many items match at the start of xs and ys. The loop runs in C, not bytecode."""
-    return len(list(takewhile(bool, map(_same, xs, ys))))
+def _matching(xs: list[Any], ys: list[Any]) -> int:
+    """How many items match at the start of xs and ys. Pairs that are the same object are
+    skipped in C; only the others are compared with _same, one at a time."""
+    for i in compress(count(), map(is_not, xs, ys)):
+        if not _same(xs[i], ys[i]):
+            return i
+    return min(len(xs), len(ys))
 
 
 def _size(data: object) -> int:
@@ -313,6 +322,8 @@ def _copy_object(obj: HeapObject) -> HeapObject:
 
 def _same(a: object, b: object) -> bool:
     """Equality that tells 1, 1.0 and True apart (Python's == doesn't) and keeps 0.0's sign."""
+    if a is b:
+        return True
     if type(a) is not type(b):
         return False
     if isinstance(a, list) and isinstance(b, list):

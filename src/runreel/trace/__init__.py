@@ -1,4 +1,4 @@
-"""Trace format v1: the model types and the keyframe/delta codec."""
+"""Trace format v1: the model types, the keyframe/delta codec and the Python tracer."""
 
 from runreel.trace.codec import KEY_EVERY, dumps, encode, iter_states, state_at
 from runreel.trace.model import (
@@ -14,9 +14,11 @@ from runreel.trace.model import (
     Trace,
     Value,
 )
+from runreel.trace.tracer import MAX_STEPS, record
 
 __all__ = [
     "KEY_EVERY",
+    "MAX_STEPS",
     "SCHEMA_VERSION",
     "Event",
     "Frame",
@@ -31,5 +33,6 @@ __all__ = [
     "dumps",
     "encode",
     "iter_states",
+    "record",
     "state_at",
 ]

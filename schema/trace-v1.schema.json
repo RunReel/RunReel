@@ -123,23 +123,38 @@
         }
       ]
     },
-    "itemPatch": {
-      "description": "Changes to a seq or map, applied in order: resize items to len, overwrite [index, item] entries, then set more (0 removes it).",
+    "item": {
+      "description": "An item of a seq (a value) or of a map (a [key, value] pair).",
+      "anyOf": [{ "$ref": "#/$defs/value" }, { "$ref": "#/$defs/pair" }]
+    },
+    "op": {
+      "description": "One edit to items. [index, item] replaces one item; [start, count, items] removes count items from start and inserts items there.",
+      "oneOf": [
+        {
+          "type": "array",
+          "prefixItems": [{ "$ref": "#/$defs/id" }, { "$ref": "#/$defs/item" }],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        {
+          "type": "array",
+          "prefixItems": [
+            { "$ref": "#/$defs/id" },
+            { "$ref": "#/$defs/id" },
+            { "type": "array", "items": { "$ref": "#/$defs/item" } }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        }
+      ]
+    },
+    "objectPatch": {
+      "description": "Changes to an object that keeps its t and cls. ops edit a seq's or map's items; they are sorted, don't overlap and use the indices from before the patch, so they are applied back to front. set and del edit an obj's fields. more replaces the count of items left out (0 removes it).",
       "type": "object",
       "properties": {
-        "len": { "type": "integer", "minimum": 0 },
-        "set": {
-          "type": "array",
-          "items": {
-            "type": "array",
-            "prefixItems": [
-              { "$ref": "#/$defs/id" },
-              { "anyOf": [{ "$ref": "#/$defs/value" }, { "$ref": "#/$defs/pair" }] }
-            ],
-            "minItems": 2,
-            "maxItems": 2
-          }
-        },
+        "ops": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/op" } },
+        "set": { "type": "object", "additionalProperties": { "$ref": "#/$defs/value" } },
+        "del": { "type": "array", "items": { "type": "string" } },
         "more": { "type": "integer", "minimum": 0 }
       },
       "minProperties": 1,
@@ -172,7 +187,7 @@
           "type": "object",
           "propertyNames": { "pattern": "^[0-9]+$" },
           "additionalProperties": {
-            "oneOf": [{ "$ref": "#/$defs/object" }, { "$ref": "#/$defs/itemPatch" }]
+            "oneOf": [{ "$ref": "#/$defs/object" }, { "$ref": "#/$defs/objectPatch" }]
           }
         },
         "gc": { "type": "array", "items": { "$ref": "#/$defs/id" } },

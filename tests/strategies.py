@@ -10,7 +10,21 @@ from runreel.trace import Event, HeapObject, State, Value
 
 EVENTS: list[Event] = ["call", "line", "return", "exception"]
 NAMES = ["a", "b", "i", "j", "lo", "hi", "best", "node"]
-OPS = ["push", "pop", "set", "del", "new", "replace", "item", "grow", "shrink", "more", "gc"]
+FIELDS = ["val", "left", "right", "next"]
+OPS = [
+    "push",
+    "pop",
+    "set",
+    "del",
+    "new",
+    "replace",
+    "item",
+    "grow",
+    "shrink",
+    "more",
+    "field",
+    "gc",
+]
 
 values: st.SearchStrategy[Value] = st.one_of(
     st.none(),
@@ -55,9 +69,7 @@ heap_objects: st.SearchStrategy[HeapObject] = st.one_of(
         st.integers(0, 3),
     ),
     st.builds(_map, st.lists(pairs, max_size=4), st.integers(0, 2)),
-    st.builds(
-        _obj, st.dictionaries(st.sampled_from(["val", "left", "right", "next"]), values, max_size=3)
-    ),
+    st.builds(_obj, st.dictionaries(st.sampled_from(FIELDS), values, max_size=3)),
     st.builds(_repr, st.text(max_size=8)),
 )
 
@@ -78,6 +90,7 @@ def state_sequences(draw: st.DrawFn) -> list[State]:
             op = draw(st.sampled_from(OPS))
             top = state["stack"][-1]["locals"]
             containers = sorted(k for k, o in state["heap"].items() if o["t"] in ("seq", "map"))
+            nodes = sorted(k for k, o in state["heap"].items() if o["t"] == "obj")
             if op == "push":
                 fn = draw(st.sampled_from(["f", "g", "h"]))
                 state["stack"].append({"fid": next_fid, "fn": fn, "line": 1, "locals": {}})
@@ -101,16 +114,23 @@ def state_sequences(draw: st.DrawFn) -> list[State]:
                 item = draw(values) if obj["t"] == "seq" else draw(pairs)
                 if op == "item" and items:
                     items[draw(st.integers(0, len(items) - 1))] = item
-                elif op == "grow":
-                    items.append(item)
+                elif op == "grow":  # anywhere, so splices in the middle get tested
+                    items.insert(draw(st.integers(0, len(items))), item)
                 elif op == "shrink" and items:
-                    items.pop()
+                    del items[draw(st.integers(0, len(items) - 1))]
                 elif op == "more":
                     more = draw(st.integers(0, 3))
                     if more:
                         obj["more"] = more
                     else:
                         obj.pop("more", None)
+            elif op == "field" and nodes:
+                fields = state["heap"][draw(st.sampled_from(nodes))]["fields"]
+                name = draw(st.sampled_from(FIELDS))
+                if name in fields and draw(st.booleans()):
+                    del fields[name]
+                else:
+                    fields[name] = draw(values)
         state["ev"] = draw(st.sampled_from(EVENTS))
         state["line"] = draw(st.integers(1, 40))
         state["stack"][-1]["line"] = state["line"]

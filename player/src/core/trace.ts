@@ -26,10 +26,18 @@ export interface HeapObject {
   v?: string; // repr only
 }
 
-/** Changes to a seq or map: resize to len, overwrite [index, item] entries, set more. */
-export interface ItemPatch {
-  len?: number;
-  set?: [number, unknown][];
+/** One edit to items: replace the item at index, or remove count items at start and insert items. */
+export type Op = [index: number, item: unknown] | [start: number, count: number, items: unknown[]];
+
+/**
+ * Changes to an object that keeps its t and cls. ops edit a seq's or map's items, using the
+ * indices from before the patch; set and del edit an obj's fields; more replaces the count of
+ * items left out (0 removes it).
+ */
+export interface ObjectPatch {
+  ops?: Op[];
+  set?: Record<string, Value>;
+  del?: string[];
   more?: number;
 }
 
@@ -47,7 +55,7 @@ export interface Step {
   key?: true;
   stack?: number[];
   frames?: Record<string, FramePatch>;
-  heap?: Record<string, HeapObject | ItemPatch>;
+  heap?: Record<string, HeapObject | ObjectPatch>;
   gc?: number[];
   ret?: Value;
   exc?: string;
@@ -116,21 +124,31 @@ export function applyStep(state: State, step: Step): void {
   }
   for (const [id, entry] of Object.entries(step.heap ?? {})) {
     if ("t" in entry) state.heap[id] = copyObject(entry);
-    else applyItemPatch(state.heap[id], entry);
+    else applyPatch(state.heap[id], entry);
   }
   for (const id of step.gc ?? []) delete state.heap[String(id)];
   if (step.ret !== undefined) state.ret = step.ret;
   if (step.exc !== undefined) state.exc = step.exc;
 }
 
-function applyItemPatch(obj: HeapObject | undefined, patch: ItemPatch): void {
-  const items = obj?.items;
-  if (!obj || !items) throw new Error("an item patch needs an existing seq or map");
-  if (patch.len !== undefined) {
-    items.length = Math.min(items.length, patch.len);
-    while (items.length < patch.len) items.push(null);
+/** Edit an object in place. Ops index the items as they were, so they run back to front. */
+function applyPatch(obj: HeapObject | undefined, patch: ObjectPatch): void {
+  if (!obj) throw new Error("a patch needs an existing object");
+  if (patch.ops) {
+    const items = obj.items;
+    if (!items) throw new Error("ops need a seq or map");
+    for (const op of patch.ops.slice().reverse()) {
+      if (op.length === 2) items[op[0]] = op[1];
+      else items.splice(op[0], op[1], ...op[2]);
+    }
   }
-  for (const [i, item] of patch.set ?? []) items[i] = item;
+  if (patch.set || patch.del) {
+    if (!obj.fields) throw new Error("set and del need an obj");
+    // Spread, not Object.assign, so a field named __proto__ stays an ordinary field.
+    const fields = { ...obj.fields, ...patch.set };
+    for (const name of patch.del ?? []) delete fields[name];
+    obj.fields = fields;
+  }
   if (patch.more !== undefined) {
     if (patch.more > 0) obj.more = patch.more;
     else delete obj.more;

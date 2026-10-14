@@ -39,15 +39,18 @@ class HeapObject(_HeapObjectBase, total=False):
     v: str  # repr only
 
 
-class ItemPatch(TypedDict, total=False):
-    """Changes to a seq or map: resize to len, overwrite [index, item] entries, set more."""
+# "del" is a Python keyword, so the two patch types use the functional syntax.
 
-    len: int
-    set: list[list[Any]]
-    more: int
+# Changes to an object that keeps its t and cls. ops edit a seq's or map's items: [i, item]
+# replaces one item, and [start, count, items] removes count items at start and inserts items
+# there. Indices are the old ones, so ops are applied back to front. set and del edit an obj's
+# fields, and more replaces the count of items left out (0 removes it).
+ObjectPatch = TypedDict(
+    "ObjectPatch",
+    {"ops": list[list[Any]], "set": dict[str, Value], "del": list[str], "more": int},
+    total=False,
+)
 
-
-# "del" is a Python keyword, so this TypedDict uses the functional syntax.
 FramePatch = TypedDict(
     "FramePatch",
     {"fn": str, "line": int, "set": dict[str, Value], "del": list[str]},
@@ -66,7 +69,7 @@ class Step(_StepBase, total=False):
     key: Literal[True]
     stack: list[int]
     frames: dict[str, FramePatch]
-    heap: dict[str, HeapObject | ItemPatch]
+    heap: dict[str, HeapObject | ObjectPatch]
     gc: list[int]
     ret: Value
     exc: str

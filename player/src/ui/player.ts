@@ -37,6 +37,7 @@ export function mount(root: HTMLElement, trace: TraceFile, options: MountOptions
         <h1>${esc(trace.source.file)}</h1>
         <span class="rr-entry">${esc(trace.source.entry)}</span>
         ${trace.truncated ? '<span class="rr-mark" title="The run went on past the step limit">truncated</span>' : ""}
+        ${options.mark === false ? "" : '<a class="rr-brand" href="https://github.com/RunReel/RunReel" target="_blank" rel="noopener">made with <b>RunReel</b></a>'}
         <button type="button" class="rr-theme" aria-label="Switch theme">Theme: auto</button>
       </header>
       <pre class="rr-code" aria-label="Source code">${lines.map((line, i) => `<div class="rr-ln" data-line="${i + 1}"><span>${i + 1}</span><span>${esc(line) || " "}</span></div>`).join("")}</pre>
@@ -51,7 +52,6 @@ export function mount(root: HTMLElement, trace: TraceFile, options: MountOptions
         <input type="range" min="0" max="${Math.max(count - 1, 0)}" value="0" aria-label="Step">
         <select aria-label="Speed">${SPEEDS.map((s) => `<option value="${s}"${s === 1 ? " selected" : ""}>${s}×</option>`).join("")}</select>
         <span class="rr-count" aria-live="polite"></span>
-        ${options.mark === false ? "" : '<span class="rr-mark">made with <a href="https://github.com/RunReel/RunReel" target="_blank" rel="noopener">RunReel</a></span>'}
       </footer>
     </div>`;
   const $ = <T extends Element>(selector: string) => root.querySelector(selector) as T;

@@ -27,7 +27,11 @@ html, body { margin: 0; height: 100%; background: var(--rr-bg); color: var(--rr-
 .rr-head { grid-area: head; display: flex; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--rr-line); }
 .rr-head h1 { font-size: 15px; margin: 0; font-weight: 600; }
 .rr-head .rr-entry { font-family: var(--rr-mono); font-size: 13px; color: var(--rr-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-head .rr-brand { margin-left: auto; font-size: 12px; color: var(--rr-muted); text-decoration: none; white-space: nowrap; }
+.rr-head .rr-brand b { color: var(--rr-blue); }
+.rr-head .rr-brand:hover b { text-decoration: underline; }
 .rr-head .rr-theme { margin-left: auto; }
+.rr-head .rr-brand + .rr-theme { margin-left: 12px; }
 .rr-code { grid-area: code; overflow: auto; background: var(--rr-code-bg); border-right: 1px solid var(--rr-line);
   font-family: var(--rr-mono); font-size: 13px; line-height: 1.6; padding: 8px 0; }
 .rr-code .rr-ln { display: grid; grid-template-columns: 3.2em 1fr; white-space: pre; padding-right: 12px; }

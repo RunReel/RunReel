@@ -81,3 +81,15 @@ def test_ids_survive_python_reusing_addresses(tmp_path: Path) -> None:
     trace = record(program(tmp_path, text), "f()")
     lists = {oid for s in states(trace) for oid, obj in s["heap"].items() if obj["cls"] == "list"}
     assert len(lists) == 3
+
+
+def test_the_program_reads_the_given_input(tmp_path: Path) -> None:
+    lines = program(tmp_path, "n = int(input())\nm = int(input())\ntotal = n + m\n")
+    assert states(record(lines, stdin="3\n4\n"))[-1]["stack"][0]["locals"]["total"] == 7
+    fast = program(tmp_path, "import sys\ntotal = sum(map(int, sys.stdin.buffer.read().split()))\n")
+    assert states(record(fast, stdin="3 4\n5\n"))[-1]["stack"][0]["locals"]["total"] == 12
+
+
+def test_without_input_reading_fails_instead_of_waiting(tmp_path: Path) -> None:
+    trace = record(program(tmp_path, "x = input()\n"))
+    assert trace["error"] == "EOFError: EOF when reading a line"

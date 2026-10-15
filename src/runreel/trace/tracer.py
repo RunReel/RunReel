@@ -12,7 +12,7 @@ import inspect
 import io
 import sys
 import types
-from collections.abc import Collection
+from collections.abc import Collection, Iterator
 from pathlib import Path
 from types import FrameType
 from typing import Any, cast
@@ -32,13 +32,15 @@ def record(
     *,
     lines: Collection[int] | None = None,
     max_steps: int = MAX_STEPS,
+    stdin: str = "",
 ) -> Trace:
     """Run the file and record it.
 
     With call, the file is loaded as a module (its __main__ block doesn't run) and only the
     call, such as "dijkstra(G, 0)", is traced. Without it, the file runs as a script. With
     lines, only states on those lines are kept. After max_steps states the trace is marked
-    truncated and the program finishes untraced.
+    truncated and the program finishes untraced. The program reads stdin as its input, never
+    the terminal, so it can't stop and wait; sys.stdin.buffer works for fast reads.
     """
     file = Path(path).resolve()
     text = file.read_text(encoding="utf-8")
@@ -57,7 +59,7 @@ def record(
     saved = sys.modules.get(name)
     sys.modules[name] = module  # dataclasses and pickling look the module up by name
     try:
-        with contextlib.redirect_stdout(output):
+        with contextlib.redirect_stdout(output), _input(stdin):
             entry = None
             if call is not None:
                 exec(code, module.__dict__)  # define the functions, untraced
@@ -175,6 +177,17 @@ class _Recorder:
                 continue  # ".0" is a comprehension's hidden iterator
             shown[name] = self.serializer.value(value)
         return shown
+
+
+@contextlib.contextmanager
+def _input(text: str) -> Iterator[None]:
+    """Give the program text as its standard input, with a .buffer like the real one."""
+    saved = sys.stdin
+    sys.stdin = io.TextIOWrapper(io.BytesIO(text.encode()), encoding="utf-8")
+    try:
+        yield
+    finally:
+        sys.stdin = saved
 
 
 def _hidden_at_top_level(name: str, value: object) -> bool:

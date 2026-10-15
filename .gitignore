@@ -13,3 +13,4 @@ build/
 # Node
 node_modules/
 player/dist/
+src/runreel/_player/

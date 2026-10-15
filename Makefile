@@ -15,5 +15,6 @@ fmt: ## format and auto-fix Python code
 	uv run ruff format .
 	uv run ruff check --fix .
 
-build: ## bundle the player into player/dist/player.js
+build: ## bundle the player and copy it into the Python package
 	cd player && npm run build
+	mkdir -p src/runreel/_player && cp player/dist/player.js src/runreel/_player/player.js

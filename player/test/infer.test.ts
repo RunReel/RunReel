@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { stateAt, type State, type Step } from "../src/core/trace";
 import { inferViews, type ArrayView, type GraphView, type TreeView } from "../src/view/infer";
-import binarySearch from "../../tests/fixtures/golden/binary_search.json";
-import bstInsert from "../../tests/fixtures/golden/bst_insert.json";
-import dijkstra from "../../tests/fixtures/golden/dijkstra.json";
+import binarySearch from "../../tests/fixtures/golden/py312/binary_search.json";
+import bstInsert from "../../tests/fixtures/golden/py312/bst_insert.json";
+import dijkstra from "../../tests/fixtures/golden/py312/dijkstra.json";
 
 const steps = (trace: { steps: unknown }) => trace.steps as Step[];
 const viewsAt = (trace: { steps: unknown }, n: number) =>
@@ -51,8 +51,8 @@ describe("shape inference", () => {
   });
 
   it("shows an adjacency dict as a graph, with dist, the current node and the edge being relaxed", () => {
-    // Step 31: relaxing 2 -> 1, about to set dist[1] = 3.
-    const state: State = stateAt(steps(dijkstra), 31);
+    // Step 28: relaxing 2 -> 1, about to set dist[1] = 3.
+    const state: State = stateAt(steps(dijkstra), 28);
     const graph = inferViews(state).find((v) => v.kind === "graph") as GraphView;
     expect(graph.label).toBe("graph");
     expect(graph.nodes.map((n) => [n.text, n.sub, n.state])).toEqual([

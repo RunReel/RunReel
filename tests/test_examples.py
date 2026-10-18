@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -11,7 +12,9 @@ from runreel.trace import dumps
 from runreel.trace.tracer import record
 
 ROOT = Path(__file__).parent.parent
-GOLDEN = Path(__file__).parent / "fixtures" / "golden"
+# From Python 3.12, comprehensions run inline (PEP 709), so traces differ in two families.
+FAMILY = "py312" if sys.version_info >= (3, 12) else "py310"
+GOLDEN = Path(__file__).parent / "fixtures" / "golden" / FAMILY
 EXAMPLES = {
     "binary_search": "binary_search([1, 3, 4, 7, 9, 11, 15], 9)",
     "bst_insert": "build([5, 3, 8, 1, 4])",
@@ -26,6 +29,6 @@ def test_example_matches_its_golden_trace(name: str) -> None:
     expected = json.dumps(trace, indent=1, ensure_ascii=False) + "\n"
     golden = GOLDEN / f"{name}.json"
     if os.environ.get("RUNREEL_UPDATE_GOLDEN"):
-        golden.parent.mkdir(exist_ok=True)
+        golden.parent.mkdir(parents=True, exist_ok=True)
         golden.write_text(expected, encoding="utf-8")
     assert golden.read_text(encoding="utf-8") == expected

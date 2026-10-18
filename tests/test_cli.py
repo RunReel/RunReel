@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -50,10 +51,11 @@ def test_spec_acceptance_one_writes_the_reel_next_to_the_file(
     assert main(["run", str(examples / "dijkstra.py"), "--call", "dijkstra(G, 0)"]) == 0
     reel = examples / "dijkstra.reel.html"
     trace = embedded_trace(reel)
-    assert len(trace["steps"]) == 63  # type: ignore[arg-type]
+    steps = 60 if sys.version_info >= (3, 12) else 63  # 3.12+ runs the dict comprehension inline
+    assert len(trace["steps"]) == steps  # type: ignore[arg-type]
     out = capsys.readouterr().out
     assert out.startswith(f"reel: {reel} (")
-    assert "63 steps · result {0: 0, 1: 3, 2: 1, 3: 4}" in out
+    assert f"{steps} steps · result {{0: 0, 1: 3, 2: 1, 3: 4}}" in out
 
 
 def test_script_with_input_lines_and_no_mark(

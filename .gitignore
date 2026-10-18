@@ -14,3 +14,6 @@ build/
 node_modules/
 player/dist/
 src/runreel/_player/
+
+# Reels written by `runreel run` (FILE.reel.html)
+*.reel.html

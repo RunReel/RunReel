@@ -4,9 +4,9 @@ import { stateAt, type Step } from "../src/core/trace";
 import { composeScene } from "../src/render/compose";
 import { sceneToSvg, type Item } from "../src/render/scene";
 import { inferViews } from "../src/view/infer";
-import binarySearch from "../../tests/fixtures/golden/binary_search.json";
-import bstInsert from "../../tests/fixtures/golden/bst_insert.json";
-import dijkstra from "../../tests/fixtures/golden/dijkstra.json";
+import binarySearch from "../../tests/fixtures/golden/py312/binary_search.json";
+import bstInsert from "../../tests/fixtures/golden/py312/bst_insert.json";
+import dijkstra from "../../tests/fixtures/golden/py312/dijkstra.json";
 
 const TRACES = { binary_search: binarySearch, bst_insert: bstInsert, dijkstra } as const;
 const sceneAt = (trace: { steps: unknown }, n: number) => {
@@ -16,7 +16,7 @@ const sceneAt = (trace: { steps: unknown }, n: number) => {
 
 describe("renderers", () => {
   // Golden SVGs at a few steps of each example; update with `npx vitest run -u`.
-  for (const [name, n] of [["binary_search", 9], ["binary_search", 16], ["bst_insert", 83], ["dijkstra", 31], ["dijkstra", 62]] as const) {
+  for (const [name, n] of [["binary_search", 9], ["binary_search", 16], ["bst_insert", 83], ["dijkstra", 28], ["dijkstra", 59]] as const) {
     it(`draws ${name} at step ${n}`, async () => {
       await expect(sceneToSvg(sceneAt(TRACES[name], n))).toMatchFileSnapshot(`golden/${name}-${n}.svg`);
     });
@@ -34,7 +34,7 @@ describe("renderers", () => {
   });
 
   it("highlights the edge being relaxed", () => {
-    const active = sceneAt(dijkstra, 31).items.filter((i) => i.type === "line" && i.cls.includes("rr-active"));
+    const active = sceneAt(dijkstra, 28).items.filter((i) => i.type === "line" && i.cls.includes("rr-active"));
     expect(active).toHaveLength(1);
     expect(active[0]!.type === "line" && active[0]!.text).toBe("2");
   });

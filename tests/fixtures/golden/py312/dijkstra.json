@@ -1,0 +1,885 @@
+{
+ "schema": 1,
+ "language": "python",
+ "source": {
+  "file": "dijkstra.py",
+  "text": "import heapq\n\n\ndef dijkstra(graph, source):\n    dist = {node: float(\"inf\") for node in graph}\n    dist[source] = 0\n    heap = [(0, source)]\n    while heap:\n        d, node = heapq.heappop(heap)\n        if d > dist[node]:\n            continue\n        for neighbour, weight in graph[node]:\n            nd = d + weight\n            if nd < dist[neighbour]:\n                dist[neighbour] = nd\n                heapq.heappush(heap, (nd, neighbour))\n    return dist\n\n\nG = {0: [(1, 4), (2, 1)], 1: [(3, 1)], 2: [(1, 2), (3, 5)], 3: []}\n\nif __name__ == \"__main__\":\n    print(dijkstra(G, 0))\n",
+  "entry": "dijkstra(G, 0)"
+ },
+ "steps": [
+  {
+   "ev": "call",
+   "line": 4,
+   "key": true,
+   "stack": [
+    1
+   ],
+   "frames": {
+    "1": {
+     "fn": "dijkstra",
+     "set": {
+      "graph": {
+       "ref": 1
+      },
+      "source": 0
+     }
+    }
+   },
+   "heap": {
+    "1": {
+     "t": "map",
+     "cls": "dict",
+     "items": [
+      [
+       0,
+       {
+        "ref": 2
+       }
+      ],
+      [
+       1,
+       {
+        "ref": 3
+       }
+      ],
+      [
+       2,
+       {
+        "ref": 4
+       }
+      ],
+      [
+       3,
+       {
+        "ref": 5
+       }
+      ]
+     ]
+    },
+    "2": {
+     "t": "seq",
+     "cls": "list",
+     "items": [
+      {
+       "ref": 6
+      },
+      {
+       "ref": 7
+      }
+     ]
+    },
+    "3": {
+     "t": "seq",
+     "cls": "list",
+     "items": [
+      {
+       "ref": 8
+      }
+     ]
+    },
+    "4": {
+     "t": "seq",
+     "cls": "list",
+     "items": [
+      {
+       "ref": 9
+      },
+      {
+       "ref": 10
+      }
+     ]
+    },
+    "5": {
+     "t": "seq",
+     "cls": "list",
+     "items": []
+    },
+    "6": {
+     "t": "seq",
+     "cls": "tuple",
+     "items": [
+      1,
+      4
+     ]
+    },
+    "7": {
+     "t": "seq",
+     "cls": "tuple",
+     "items": [
+      2,
+      1
+     ]
+    },
+    "8": {
+     "t": "seq",
+     "cls": "tuple",
+     "items": [
+      3,
+      1
+     ]
+    },
+    "9": {
+     "t": "seq",
+     "cls": "tuple",
+     "items": [
+      1,
+      2
+     ]
+    },
+    "10": {
+     "t": "seq",
+     "cls": "tuple",
+     "items": [
+      3,
+      5
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 5
+  },
+  {
+   "ev": "line",
+   "line": 5,
+   "frames": {
+    "1": {
+     "set": {
+      "node": 0
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 5,
+   "frames": {
+    "1": {
+     "set": {
+      "node": 1
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 5,
+   "frames": {
+    "1": {
+     "set": {
+      "node": 2
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 5,
+   "frames": {
+    "1": {
+     "set": {
+      "node": 3
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 6,
+   "frames": {
+    "1": {
+     "set": {
+      "dist": {
+       "ref": 11
+      }
+     },
+     "del": [
+      "node"
+     ]
+    }
+   },
+   "heap": {
+    "11": {
+     "t": "map",
+     "cls": "dict",
+     "items": [
+      [
+       0,
+       {
+        "inf": 1
+       }
+      ],
+      [
+       1,
+       {
+        "inf": 1
+       }
+      ],
+      [
+       2,
+       {
+        "inf": 1
+       }
+      ],
+      [
+       3,
+       {
+        "inf": 1
+       }
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 7,
+   "heap": {
+    "11": {
+     "ops": [
+      [
+       0,
+       [
+        0,
+        0
+       ]
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 8,
+   "frames": {
+    "1": {
+     "set": {
+      "heap": {
+       "ref": 12
+      }
+     }
+    }
+   },
+   "heap": {
+    "12": {
+     "t": "seq",
+     "cls": "list",
+     "items": [
+      {
+       "ref": 13
+      }
+     ]
+    },
+    "13": {
+     "t": "seq",
+     "cls": "tuple",
+     "items": [
+      0,
+      0
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 9
+  },
+  {
+   "ev": "line",
+   "line": 10,
+   "frames": {
+    "1": {
+     "set": {
+      "node": 0,
+      "d": 0
+     }
+    }
+   },
+   "heap": {
+    "12": {
+     "ops": [
+      [
+       0,
+       1,
+       []
+      ]
+     ]
+    }
+   },
+   "gc": [
+    13
+   ]
+  },
+  {
+   "ev": "line",
+   "line": 12
+  },
+  {
+   "ev": "line",
+   "line": 13,
+   "frames": {
+    "1": {
+     "set": {
+      "neighbour": 1,
+      "weight": 4
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 14,
+   "frames": {
+    "1": {
+     "set": {
+      "nd": 4
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 15
+  },
+  {
+   "ev": "line",
+   "line": 16,
+   "heap": {
+    "11": {
+     "ops": [
+      [
+       1,
+       [
+        1,
+        4
+       ]
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "heap": {
+    "12": {
+     "ops": [
+      [
+       0,
+       0,
+       [
+        {
+         "ref": 14
+        }
+       ]
+      ]
+     ]
+    },
+    "14": {
+     "t": "seq",
+     "cls": "tuple",
+     "items": [
+      4,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 13,
+   "frames": {
+    "1": {
+     "set": {
+      "neighbour": 2,
+      "weight": 1
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 14,
+   "frames": {
+    "1": {
+     "set": {
+      "nd": 1
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 15
+  },
+  {
+   "ev": "line",
+   "line": 16,
+   "heap": {
+    "11": {
+     "ops": [
+      [
+       2,
+       [
+        2,
+        1
+       ]
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "heap": {
+    "12": {
+     "ops": [
+      [
+       0,
+       0,
+       [
+        {
+         "ref": 15
+        }
+       ]
+      ]
+     ]
+    },
+    "15": {
+     "t": "seq",
+     "cls": "tuple",
+     "items": [
+      1,
+      2
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 8
+  },
+  {
+   "ev": "line",
+   "line": 9
+  },
+  {
+   "ev": "line",
+   "line": 10,
+   "frames": {
+    "1": {
+     "set": {
+      "node": 2,
+      "d": 1
+     }
+    }
+   },
+   "heap": {
+    "12": {
+     "ops": [
+      [
+       0,
+       1,
+       []
+      ]
+     ]
+    }
+   },
+   "gc": [
+    15
+   ]
+  },
+  {
+   "ev": "line",
+   "line": 12
+  },
+  {
+   "ev": "line",
+   "line": 13,
+   "frames": {
+    "1": {
+     "set": {
+      "neighbour": 1,
+      "weight": 2
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 14,
+   "frames": {
+    "1": {
+     "set": {
+      "nd": 3
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 15
+  },
+  {
+   "ev": "line",
+   "line": 16,
+   "heap": {
+    "11": {
+     "ops": [
+      [
+       1,
+       [
+        1,
+        3
+       ]
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "heap": {
+    "12": {
+     "ops": [
+      [
+       0,
+       0,
+       [
+        {
+         "ref": 16
+        }
+       ]
+      ]
+     ]
+    },
+    "16": {
+     "t": "seq",
+     "cls": "tuple",
+     "items": [
+      3,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 13,
+   "frames": {
+    "1": {
+     "set": {
+      "neighbour": 3,
+      "weight": 5
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 14,
+   "frames": {
+    "1": {
+     "set": {
+      "nd": 6
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 15
+  },
+  {
+   "ev": "line",
+   "line": 16,
+   "heap": {
+    "11": {
+     "ops": [
+      [
+       3,
+       [
+        3,
+        6
+       ]
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "heap": {
+    "12": {
+     "ops": [
+      [
+       2,
+       0,
+       [
+        {
+         "ref": 17
+        }
+       ]
+      ]
+     ]
+    },
+    "17": {
+     "t": "seq",
+     "cls": "tuple",
+     "items": [
+      6,
+      3
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 8
+  },
+  {
+   "ev": "line",
+   "line": 9
+  },
+  {
+   "ev": "line",
+   "line": 10,
+   "frames": {
+    "1": {
+     "set": {
+      "node": 1,
+      "d": 3
+     }
+    }
+   },
+   "heap": {
+    "12": {
+     "ops": [
+      [
+       0,
+       1,
+       []
+      ]
+     ]
+    }
+   },
+   "gc": [
+    16
+   ]
+  },
+  {
+   "ev": "line",
+   "line": 12
+  },
+  {
+   "ev": "line",
+   "line": 13,
+   "frames": {
+    "1": {
+     "set": {
+      "weight": 1
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 14,
+   "frames": {
+    "1": {
+     "set": {
+      "nd": 4
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 15
+  },
+  {
+   "ev": "line",
+   "line": 16,
+   "heap": {
+    "11": {
+     "ops": [
+      [
+       3,
+       [
+        3,
+        4
+       ]
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "heap": {
+    "12": {
+     "ops": [
+      [
+       2,
+       0,
+       [
+        {
+         "ref": 18
+        }
+       ]
+      ]
+     ]
+    },
+    "18": {
+     "t": "seq",
+     "cls": "tuple",
+     "items": [
+      4,
+      3
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 8
+  },
+  {
+   "ev": "line",
+   "line": 9
+  },
+  {
+   "ev": "line",
+   "line": 10,
+   "frames": {
+    "1": {
+     "set": {
+      "d": 4
+     }
+    }
+   },
+   "heap": {
+    "12": {
+     "ops": [
+      [
+       0,
+       3,
+       [
+        {
+         "ref": 18
+        },
+        {
+         "ref": 17
+        }
+       ]
+      ]
+     ]
+    }
+   },
+   "gc": [
+    14
+   ]
+  },
+  {
+   "ev": "line",
+   "line": 11
+  },
+  {
+   "ev": "line",
+   "line": 8
+  },
+  {
+   "ev": "line",
+   "line": 9
+  },
+  {
+   "ev": "line",
+   "line": 10,
+   "frames": {
+    "1": {
+     "set": {
+      "node": 3
+     }
+    }
+   },
+   "heap": {
+    "12": {
+     "ops": [
+      [
+       0,
+       1,
+       []
+      ]
+     ]
+    }
+   },
+   "gc": [
+    18
+   ]
+  },
+  {
+   "ev": "line",
+   "line": 12
+  },
+  {
+   "ev": "line",
+   "line": 8
+  },
+  {
+   "ev": "line",
+   "line": 9
+  },
+  {
+   "ev": "line",
+   "line": 10,
+   "frames": {
+    "1": {
+     "set": {
+      "d": 6
+     }
+    }
+   },
+   "heap": {
+    "12": {
+     "ops": [
+      [
+       0,
+       1,
+       []
+      ]
+     ]
+    }
+   },
+   "gc": [
+    17
+   ]
+  },
+  {
+   "ev": "line",
+   "line": 11
+  },
+  {
+   "ev": "line",
+   "line": 8
+  },
+  {
+   "ev": "line",
+   "line": 17
+  },
+  {
+   "ev": "return",
+   "line": 17,
+   "ret": {
+    "ref": 11
+   }
+  }
+ ],
+ "result": {
+  "ref": 11
+ }
+}

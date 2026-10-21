@@ -93,3 +93,26 @@ def test_the_program_reads_the_given_input(tmp_path: Path) -> None:
 def test_without_input_reading_fails_instead_of_waiting(tmp_path: Path) -> None:
     trace = record(program(tmp_path, "x = input()\n"))
     assert trace["error"] == "EOFError: EOF when reading a line"
+
+
+def test_recording_the_same_program_twice_gives_the_same_trace(tmp_path: Path) -> None:
+    # A lambda and a generator kept in variables: their printed forms would otherwise carry
+    # memory addresses, which change from run to run.
+    text = (
+        "def make():\n"
+        "    return lambda x: x + 1\n"
+        "\n"
+        "def numbers():\n"
+        "    yield 1\n"
+        "\n"
+        "def main():\n"
+        "    add = make()\n"
+        "    gen = numbers()\n"
+        "    first = next(gen)\n"
+        "    return add(first)\n"
+    )
+    path = program(tmp_path, text)
+    first, second = dumps(record(path, "main()")), dumps(record(path, "main()"))
+    assert " at 0x" not in first
+    assert "<function make.<locals>.<lambda>>" in first and "<generator object numbers>" in first
+    assert first == second

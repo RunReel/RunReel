@@ -128,3 +128,22 @@ def test_a_field_renamed_with_the_same_value_is_not_mistaken_for_unchanged() -> 
     box.b = 1  # type: ignore[attr-defined]
     serializer.value(box)
     assert serializer.heap()[1] == {"t": "obj", "cls": "Box", "fields": {"b": 1}}
+
+
+def test_printed_forms_leave_out_memory_addresses() -> None:
+    def outer() -> object:
+        return lambda: None
+
+    def numbers() -> object:
+        yield 1
+
+    values, heap = snapshot(outer, outer(), numbers(), iter([1]))
+    printed = []
+    for value in values:
+        assert isinstance(value, dict)
+        printed.append(heap[value["ref"]]["v"])
+    assert printed[0].startswith("<function test_printed_forms_leave_out_memory_addresses.")
+    assert printed[1].endswith(".outer.<locals>.<lambda>>")
+    assert printed[2].endswith(".numbers>")
+    assert printed[3] == "<list_iterator object>"
+    assert not any(" at 0x" in text for text in printed)

@@ -9,6 +9,7 @@ identity instead of comparing them item by item.
 from __future__ import annotations
 
 import math
+import re
 import types
 from collections import deque
 from dataclasses import dataclass
@@ -23,6 +24,9 @@ MAX_OBJECTS = 1000  # objects shown per step; any further ones become placeholde
 MAX_STR = 1000  # characters kept of a string
 MAX_REPR = 200  # characters kept of an object's printed form
 SAFE_INT = 2**53 - 1  # larger integers lose precision in JavaScript, so they are tagged
+# Memory addresses in printed forms, as in "<function f at 0x7f3a2c1b>". They change on every
+# run, so keeping them would make two recordings of the same program differ.
+_ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")
 
 _INF: Value = {"inf": 1}
 _NEG_INF: Value = {"inf": -1}
@@ -192,4 +196,5 @@ def _repr(x: object) -> str:
         text = repr(x)
     except Exception:
         text = f"<{type(x).__name__} object>"
+    text = _ADDRESS.sub("", text)
     return text if len(text) <= MAX_REPR else text[:MAX_REPR] + "…"

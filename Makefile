@@ -8,6 +8,7 @@ check: ## lint, type-check and test everything
 	uv run ruff check .
 	uv run ruff format --check .
 	uv run mypy
+	uv run mypy --python-version 3.12  # the sys.monitoring code is only reachable on 3.12+
 	uv run pytest
 	cd player && npm run typecheck && npm test
 

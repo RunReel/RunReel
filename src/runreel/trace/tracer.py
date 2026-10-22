@@ -2,7 +2,7 @@
 
 Only code from the user's file is traced. Library and built-in calls aren't stepped through,
 but their effects show up in the next state. A "line" state is taken just before that line
-runs, as sys.settrace reports it.
+runs. The events come from sys.monitoring on Python 3.12+ and sys.settrace before (events.py).
 """
 
 from __future__ import annotations
@@ -12,12 +12,13 @@ import inspect
 import io
 import sys
 import types
-from collections.abc import Collection, Iterator
+from collections.abc import Callable, Collection, Iterator
 from pathlib import Path
 from types import FrameType
 from typing import Any, cast
 
 from runreel.trace.codec import encode
+from runreel.trace.events import Backend, open_source
 from runreel.trace.model import Event, Frame, State, Trace, Value
 from runreel.trace.serialize import Serializer
 
@@ -33,6 +34,7 @@ def record(
     lines: Collection[int] | None = None,
     max_steps: int = MAX_STEPS,
     stdin: str = "",
+    backend: Backend = "auto",
 ) -> Trace:
     """Run the file and record it.
 
@@ -41,6 +43,9 @@ def record(
     lines, only states on those lines are kept. After max_steps states the trace is marked
     truncated and the program finishes untraced. The program reads stdin as its input, never
     the terminal, so it can't stop and wait; sys.stdin.buffer works for fast reads.
+
+    backend picks the event source; "auto" uses sys.monitoring when it can. Both record the
+    same steps, so this only matters for testing and for working around a problem.
     """
     file = Path(path).resolve()
     text = file.read_text(encoding="utf-8")
@@ -49,6 +54,8 @@ def record(
     module = types.ModuleType(name)
     module.__file__ = str(file)
     recorder = _Recorder(str(file), lines, max_steps)
+    source = open_source(recorder, backend)
+    recorder.stop = source.stop
     output = _Output(recorder)
     trace: Trace = {
         "schema": 1,
@@ -64,7 +71,7 @@ def record(
             if call is not None:
                 exec(code, module.__dict__)  # define the functions, untraced
                 entry = compile(call, "<runreel call>", "eval")
-            sys.settrace(recorder.on_call)
+            source.start()
             try:
                 if entry is None:
                     exec(code, module.__dict__)
@@ -76,7 +83,7 @@ def record(
             except Exception as error:
                 trace["error"] = _describe(error)
             finally:
-                sys.settrace(None)
+                source.close()
     finally:
         if saved is None:
             del sys.modules[name]
@@ -97,26 +104,10 @@ class _Recorder:
         self.states: list[State] = []
         self.serializer = Serializer()
         self.truncated = False
+        self.stop: Callable[[], None] = lambda: None  # set to the event source's stop()
         self._fids: dict[int, int] = {}  # id() of a live frame -> its call id
         self._frames: dict[int, FrameType] = {}  # keeps those frames alive, so id() isn't reused
         self._next_fid = 1
-
-    def on_call(self, frame: FrameType, event: str, arg: Any) -> Any:
-        """sys.settrace's global hook: trace frames from the user's file, ignore the rest."""
-        if self.truncated or frame.f_code.co_filename != self.file:
-            return None
-        self._record(frame, event, arg)
-        return self.on_event
-
-    def on_event(self, frame: FrameType, event: str, arg: Any) -> Any:
-        """The per-frame hook. Returning None stops tracing that frame."""
-        if self.truncated:
-            return None
-        if event in ("line", "return", "exception"):
-            self._record(frame, event, arg)
-        if event == "return" and not frame.f_code.co_flags & _RESUMABLE:
-            self._frames.pop(self._fids.pop(id(frame), 0), None)
-        return self.on_event
 
     def result(self, value: object) -> Value:
         """The call's return value. It is a heap object only if some state already showed it."""
@@ -126,12 +117,14 @@ class _Recorder:
             return repr(value)[:200]
         return result
 
-    def _record(self, frame: FrameType, event: str, arg: Any) -> None:
-        if self.lines is not None and frame.f_lineno not in self.lines:
+    def step(self, frame: FrameType, event: str, line: int, value: object = None) -> None:
+        """Record the state as the event in frame happens at line. value is the returned
+        value or the exception."""
+        if self.lines is not None and line not in self.lines:
             return
         if len(self.states) >= self.max_steps:
             self.truncated = True
-            sys.settrace(None)
+            self.stop()
             return
         stack: list[FrameType] = []
         f: FrameType | None = frame
@@ -143,23 +136,24 @@ class _Recorder:
             {
                 "fid": self._fid(f),
                 "fn": f.f_code.co_name,
-                "line": f.f_lineno,
+                "line": line if f is frame else f.f_lineno,
                 "locals": self._locals(f),
             }
             for f in reversed(stack)
         ]
-        state: State = {
-            "ev": cast(Event, event),
-            "line": frame.f_lineno,
-            "stack": frames,
-            "heap": {},
-        }
+        state: State = {"ev": cast(Event, event), "line": line, "stack": frames, "heap": {}}
         if event == "return":
-            state["ret"] = self.serializer.value(arg)
+            state["ret"] = self.serializer.value(value)
         elif event == "exception":
-            state["exc"] = _describe(arg[1])
+            state["exc"] = _describe(cast(BaseException, value))
         state["heap"] = self.serializer.heap()
         self.states.append(state)
+
+    def done(self, frame: FrameType) -> None:
+        """A call has returned or unwound: forget its frame, unless it can resume (a generator
+        or coroutine keeps its call id from one resumption to the next)."""
+        if not frame.f_code.co_flags & _RESUMABLE:
+            self._frames.pop(self._fids.pop(id(frame), 0), None)
 
     def _fid(self, frame: FrameType) -> int:
         fid = self._fids.get(id(frame))

@@ -31,6 +31,23 @@ export function endNote(trace: TraceFile): string {
   return how ? `The run was stopped here, ${how}.` : "";
 }
 
+/** Playback speeds. 1× plays two steps a second. */
+export const SPEEDS = [0.1, 0.2, 0.5, 1, 2, 4, 8];
+const STEPS_PER_SECOND = 2;
+/** How long a moving element takes to reach its new place, at 1× and when stepping by hand. */
+export const MOVE_MS = 260;
+
+/** The time between steps when playing at speed. */
+export function stepMs(speed: number): number {
+  return 1000 / (STEPS_PER_SECOND * speed);
+}
+
+/** How long moves take when playing at speed: stretched below 1×, so 0.1× is slow motion,
+ * and never shorter than at 1×. Either way a move ends well before the next step starts. */
+export function moveMs(speed: number): number {
+  return Math.round(MOVE_MS / Math.min(speed, 1));
+}
+
 /** For each source line, the first step that runs it, so lines can be shaded once they've run. */
 export function firstSteps(steps: readonly Step[]): Map<number, number> {
   const first = new Map<number, number>();

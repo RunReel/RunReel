@@ -14,7 +14,7 @@ from runreel.trace.model import (
     Trace,
     Value,
 )
-from runreel.trace.tracer import MAX_STEPS, TIMEOUT, record
+from runreel.trace.tracer import MAX_STEPS, TIMEOUT, ExitedWhileLoading, record
 
 __all__ = [
     "KEY_EVERY",
@@ -22,6 +22,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "TIMEOUT",
     "Event",
+    "ExitedWhileLoading",
     "Frame",
     "FramePatch",
     "HeapObject",

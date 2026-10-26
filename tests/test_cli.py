@@ -106,6 +106,14 @@ def test_an_error_in_the_program_still_writes_the_reel(
     assert "error IndexError: list index out of range" in capsys.readouterr().out
 
 
+def test_arguments_after_a_double_dash_go_to_the_program(tmp_path: Path) -> None:
+    script = tmp_path / "args.py"
+    script.write_text("import sys\nprint(sys.argv[1:])\n")
+    assert main(["run", str(script), "--", "--n", "5"]) == 0
+    stdout = embedded_trace(tmp_path / "args.reel.html")["stdout"]
+    assert isinstance(stdout, list) and [text for _, text in stdout] == ["['--n', '5']\n"]
+
+
 def test_truncation_is_reported(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     script = tmp_path / "loop.py"
     script.write_text("n = 0\nwhile n < 100:\n    n += 1\n")
@@ -201,6 +209,7 @@ def test_open_shows_the_reel_in_the_browser(
         (None, "can't read"),
         ("def f(:\n", "doesn't compile: "),
         ("raise ValueError('boom')\n", "failed while loading: ValueError: boom"),
+        ("import sys\nsys.exit(3)\n", "exited while loading (sys.exit(3)). With --call"),
     ],
 )
 def test_files_that_cant_run_exit_with_1(

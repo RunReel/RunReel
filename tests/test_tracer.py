@@ -4,11 +4,12 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
 from test_codec import canonical, load_states
 from test_schema import VALIDATOR
 
 from runreel.trace import State, Trace, dumps, iter_states
-from runreel.trace.tracer import record
+from runreel.trace.tracer import ExitedWhileLoading, record
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -47,6 +48,51 @@ def test_stops_recording_at_max_steps_but_finishes_the_run(tmp_path: Path) -> No
     assert trace["truncated"] is True
     assert trace["result"] == 1000
     assert sys.gettrace() is None
+
+
+def test_runs_the_file_the_way_python_does(tmp_path: Path) -> None:
+    # Its folder comes first on sys.path and sys.argv is the file and its arguments, then
+    # both are put back, and the module it imported from its folder is forgotten.
+    (tmp_path / "helper.py").write_text("def twice(x):\n    return 2 * x\n")
+    path = program(tmp_path, "import sys\nimport helper\n\nprint(sys.argv, helper.twice(21))\n")
+    argv, search = sys.argv[:], sys.path[:]
+    trace = record(path, args=["--n", "5"])
+    assert "".join(text for _, text in trace.get("stdout", [])) == f"{[str(path), '--n', '5']} 42\n"
+    assert "error" not in trace
+    assert sys.argv == argv and sys.path == search
+    assert "helper" not in sys.modules
+
+
+def test_a_call_can_use_the_files_next_to_it(tmp_path: Path) -> None:
+    (tmp_path / "helper.py").write_text("SCALE = 3\n")
+    path = program(tmp_path, "import helper\n\ndef f(x):\n    return x * helper.SCALE\n")
+    assert record(path, "f(2)")["result"] == 6
+    assert "helper" not in sys.modules
+
+
+def test_only_the_programs_own_modules_are_forgotten(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "helper.py").write_text("")
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("")
+    (tmp_path / "pkg" / "part.py").write_text("")
+    site = tmp_path / "venv" / "site-packages"  # a library that happens to live under the folder
+    site.mkdir(parents=True)
+    (site / "library.py").write_text("")
+    monkeypatch.syspath_prepend(str(site))
+    try:
+        record(program(tmp_path, "import helper, library, pkg.part\n"))
+        assert {"helper", "pkg", "pkg.part"}.isdisjoint(sys.modules)
+        assert "library" in sys.modules
+    finally:
+        sys.modules.pop("library", None)
+
+
+def test_exiting_while_the_file_loads_for_a_call_is_an_error(tmp_path: Path) -> None:
+    path = program(tmp_path, "import sys\nsys.exit(3)\n\ndef f():\n    return 1\n")
+    with pytest.raises(ExitedWhileLoading, match=r"exited while loading \(sys\.exit\(3\)\)"):
+        record(path, "f()")
 
 
 def test_records_an_exception(tmp_path: Path) -> None:

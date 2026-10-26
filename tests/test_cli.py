@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import signal
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -14,6 +17,12 @@ from runreel.cli import main, parse_lines
 
 ROOT = Path(__file__).parent.parent
 STUB = "window.RunReelPlayer={mount(){}};"
+# The CLI in a Python of its own, for the tests that send signals, with the same stub player.
+CLI = (
+    f"import sys, runreel.reel; runreel.reel.player_js = lambda: {STUB!r}; "
+    "from runreel.cli import main; sys.exit(main(sys.argv[1:]))"
+)
+posix = pytest.mark.skipif(not hasattr(signal, "pthread_kill"), reason="needs POSIX signals")
 
 
 @pytest.fixture(autouse=True)
@@ -104,6 +113,77 @@ def test_truncation_is_reported(tmp_path: Path, capsys: pytest.CaptureFixture[st
     assert "5 steps (truncated: raise --max-steps to see more)" in capsys.readouterr().out
 
 
+@posix
+def test_a_run_stopped_at_the_time_limit_still_writes_the_reel(tmp_path: Path) -> None:
+    script = tmp_path / "spin.py"
+    script.write_text("n = 0\nwhile True:\n    n += 1\n")
+    done = subprocess.run(
+        [sys.executable, "-c", CLI, "run", str(script), "--timeout", "0.3"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert done.returncode == 0, done.stderr
+    truncated = "5000 steps (truncated: raise --max-steps to see more)"
+    stopped = "stopped at the 0.3 s time limit (raise --timeout to let it run longer)"
+    assert f"{truncated} · {stopped}" in done.stdout
+    assert embedded_trace(tmp_path / "spin.reel.html")["stopped"] == "timeout"
+
+
+@posix
+def test_ctrl_c_stops_the_program_and_still_writes_the_reel(tmp_path: Path) -> None:
+    started = tmp_path / "started"
+    script = tmp_path / "spin.py"
+    script.write_text(f"open({str(started)!r}, 'w').close()\nn = 0\nwhile True:\n    n += 1\n")
+    child = subprocess.Popen(
+        [sys.executable, "-c", CLI, "run", str(script), "--timeout", "0"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        give_up = time.monotonic() + 30
+        while not started.exists() and child.poll() is None and time.monotonic() < give_up:
+            time.sleep(0.01)
+        time.sleep(0.2)  # well into the loop
+        child.send_signal(signal.SIGINT)  # what Ctrl+C in the terminal sends
+        out, err = child.communicate(timeout=30)
+    finally:
+        child.kill()
+    assert child.returncode == 0, err
+    assert "stopped by Ctrl+C" in out
+    assert embedded_trace(tmp_path / "spin.reel.html")["stopped"] == "interrupt"
+
+
+@posix
+def test_a_file_that_never_finishes_loading_exits_with_1(tmp_path: Path) -> None:
+    script = tmp_path / "busy.py"
+    script.write_text("while True:\n    pass\n\ndef f():\n    return 1\n")
+    done = subprocess.run(
+        [sys.executable, "-c", CLI, "run", str(script), "--call", "f()", "--timeout", "0.3"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert done.returncode == 1
+    message = "stopped at the 0.3 s time limit before any step was recorded. With --call"
+    assert message in done.stderr
+    assert not (tmp_path / "busy.reel.html").exists()
+
+
+def test_ctrl_c_outside_the_run_exits_with_130(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def interrupted(*args: object, **kwargs: object) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("runreel.cli.write_reel", interrupted)
+    script = tmp_path / "x.py"
+    script.write_text("x = 1\n")
+    assert main(["run", str(script)]) == 130
+    assert "runreel: interrupted" in capsys.readouterr().err
+
+
 def test_open_shows_the_reel_in_the_browser(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -154,7 +234,16 @@ def test_line_ranges() -> None:
             parse_lines(bad)
 
 
-@pytest.mark.parametrize("args", [["--lines", "a"], ["--max-steps", "0"]])
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--lines", "a"],
+        ["--max-steps", "0"],
+        ["--timeout", "-1"],
+        ["--timeout", "soon"],
+        ["--timeout", "nan"],
+    ],
+)
 def test_bad_arguments_exit_with_2(tmp_path: Path, args: list[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["run", str(tmp_path / "x.py"), *args])

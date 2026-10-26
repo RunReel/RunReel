@@ -11,13 +11,16 @@ from typing import Any
 
 from runreel import __version__
 from runreel.reel import write_reel
-from runreel.trace import MAX_STEPS, Trace, record, state_at
+from runreel.trace import MAX_STEPS, TIMEOUT, Trace, record, state_at
 
 RUN_HELP = """\
 Run FILE, record every step and write the reel: one HTML file that opens offline.
 
 This executes FILE's code on your machine, with your permissions, exactly as running it
 yourself would. Only run code you trust.
+
+After the step limit the program keeps running unrecorded until it ends or hits the time
+limit. Ctrl+C stops it too, and the reel is still written.
 """
 
 
@@ -53,6 +56,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help=f"stop recording after N steps (default: {MAX_STEPS})",
     )
+    run.add_argument(
+        "--timeout",
+        type=seconds,
+        default=TIMEOUT,
+        metavar="SECONDS",
+        help=f"stop the program once it has run for SECONDS (default: {TIMEOUT:g}; 0: no limit)",
+    )
     run.add_argument("--out", type=Path, help="reel to write (default: FILE with .reel.html)")
     run.add_argument("--open", action="store_true", help="open the reel in your browser")
     run.add_argument("--no-mark", action="store_true", help='hide the "made with RunReel" link')
@@ -84,13 +94,27 @@ def positive(text: str) -> int:
     return n
 
 
+def seconds(text: str) -> float:
+    try:
+        n = float(text)
+    except ValueError:
+        n = -1
+    if not n >= 0:  # also refuses nan
+        raise argparse.ArgumentTypeError(f"must be a number of seconds, 0 or more: {text!r}")
+    return n
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:
         parser.print_help()
         return 0
-    return run(args)
+    try:
+        return run(args)
+    except KeyboardInterrupt:  # Ctrl+C before or after the run, e.g. while writing the reel
+        print("runreel: interrupted", file=sys.stderr)
+        return 130
 
 
 def run(args: argparse.Namespace) -> int:
@@ -98,7 +122,14 @@ def run(args: argparse.Namespace) -> int:
     file: Path = args.file
     try:
         stdin = args.stdin.read_text(encoding="utf-8") if args.stdin else ""
-        trace = record(file, args.call, lines=args.lines, max_steps=args.max_steps, stdin=stdin)
+        trace = record(
+            file,
+            args.call,
+            lines=args.lines,
+            max_steps=args.max_steps,
+            stdin=stdin,
+            timeout=args.timeout or None,
+        )
     except OSError as error:
         return fail(f"can't read {error.filename or file}: {error.strerror or error}")
     except UnicodeDecodeError:
@@ -107,6 +138,14 @@ def run(args: argparse.Namespace) -> int:
         return fail(f"{file} doesn't compile: {error.msg} (line {error.lineno})")
     except Exception as error:  # raised while loading the file, before the traced call
         return fail(f"{file} failed while loading: {type(error).__name__}: {error}")
+    if not trace["steps"] and "stopped" in trace:
+        message = f"{file} was {stopped(trace, args.timeout)} before any step was recorded"
+        if args.call:
+            message += (
+                ". With --call the file is loaded first, untraced, so it should only define"
+                ' functions; put the code that runs the program under `if __name__ == "__main__":`'
+            )
+        return fail(message)
     out: Path = args.out or file.with_suffix(".reel.html")
     try:
         write_reel(trace, out, mark=not args.no_mark)
@@ -114,7 +153,7 @@ def run(args: argparse.Namespace) -> int:
         return fail(str(error))
     except OSError as error:
         return fail(f"can't write {out}: {error.strerror or error}")
-    print(summary(trace, out))
+    print(summary(trace, out, args.timeout))
     if args.open:
         webbrowser.open(out.resolve().as_uri())
     return 0
@@ -125,12 +164,16 @@ def fail(message: str) -> int:
     return 1
 
 
-def summary(trace: Trace, out: Path) -> str:
+def summary(trace: Trace, out: Path, timeout: float | None = None) -> str:
     """E.g. "reel: dijkstra.reel.html (29 KB) · 63 steps · result {0: 0, 1: 3}"."""
     steps = trace["steps"]
     parts = [f"reel: {out} ({max(out.stat().st_size // 1024, 1)} KB)", f"{len(steps)} steps"]
     if trace.get("truncated"):
         parts[-1] += " (truncated: raise --max-steps to see more)"
+    if "stopped" in trace:
+        parts.append(stopped(trace, timeout))
+        if trace["stopped"] == "timeout":
+            parts[-1] += " (raise --timeout to let it run longer)"
     if "error" in trace:
         parts.append(f"error {trace['error']}")
     elif "result" in trace:
@@ -140,6 +183,13 @@ def summary(trace: Trace, out: Path) -> str:
     if printed:
         parts.append(f"printed {printed} line{'s' if printed != 1 else ''}")
     return " · ".join(parts)
+
+
+def stopped(trace: Trace, timeout: float | None) -> str:
+    """How the program was stopped, e.g. "stopped at the 60 s time limit"."""
+    if trace.get("stopped") == "interrupt":
+        return "stopped by Ctrl+C"
+    return f"stopped at the {timeout:g} s time limit" if timeout else "stopped at the time limit"
 
 
 def describe(value: Any, heap: dict[int, Any], depth: int = 0) -> str:

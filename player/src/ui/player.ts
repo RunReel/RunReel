@@ -5,7 +5,7 @@ import { composeScene } from "../render/compose";
 import { ARROW_DEFS, esc, itemInner, round, type Item, type Scene } from "../render/scene";
 import { formatValue } from "../view/format";
 import { inferViews } from "../view/infer";
-import { actionForKey, firstSteps, printedBy, stepFromHash, type TraceFile } from "./model";
+import { actionForKey, endNote, firstSteps, printedBy, STOPS, stepFromHash, type TraceFile } from "./model";
 import { STYLES } from "./styles";
 
 export interface MountOptions {
@@ -37,6 +37,7 @@ export function mount(root: HTMLElement, trace: TraceFile, options: MountOptions
         <h1>${esc(trace.source.file)}</h1>
         <span class="rr-entry">${esc(trace.source.entry)}</span>
         ${trace.truncated ? '<span class="rr-mark" title="The run went on past the step limit">truncated</span>' : ""}
+        ${trace.stopped ? `<span class="rr-mark" title="The run was stopped ${STOPS[trace.stopped].how}">${STOPS[trace.stopped].badge}</span>` : ""}
         ${options.mark === false ? "" : '<a class="rr-brand" href="https://github.com/RunReel/RunReel" target="_blank" rel="noopener">made with <b>RunReel</b></a>'}
         <button type="button" class="rr-theme" aria-label="Switch theme">Theme: auto</button>
       </header>
@@ -163,7 +164,8 @@ function variablesHtml(state: State, prev: State | undefined, trace: TraceFile, 
   if (state.ev === "return") events.push(`<p class="rr-event">↩ returns ${esc(formatValue(state.ret, state.heap, 1))}</p>`);
   if (state.ev === "exception") events.push(`<p class="rr-event rr-error">⚠ ${esc(state.exc ?? "exception")}</p>`);
   if (last && trace.error) events.push(`<p class="rr-event rr-error">The run ended with ${esc(trace.error)}</p>`);
-  if (last && trace.truncated) events.push('<p class="rr-event">The run went on past the step limit; only the first steps were recorded.</p>');
+  const note = endNote(trace);
+  if (last && note) events.push(`<p class="rr-event">${esc(note)}</p>`);
   const printed = printedBy(trace.stdout, n);
   if (printed) events.push(`<pre class="rr-out" aria-label="Printed output">${esc(printed)}</pre>`);
   return events.join("") + frames.join("");

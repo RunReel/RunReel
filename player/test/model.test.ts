@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Step } from "../src/core/trace";
-import { actionForKey, firstSteps, printedBy, stepFromHash } from "../src/ui/model";
+import { actionForKey, endNote, firstSteps, printedBy, stepFromHash, type TraceFile } from "../src/ui/model";
 
 describe("player model", () => {
   it("finds the first step that runs each line", () => {
@@ -15,6 +15,19 @@ describe("player model", () => {
     expect(printedBy(out, 3)).toBe("a\n");
     expect(printedBy(out, 4)).toBe("a\nb\n");
     expect(printedBy(undefined, 9)).toBe("");
+  });
+
+  it("says how a run that ended early was stopped", () => {
+    const trace = (extra: Partial<TraceFile>): TraceFile => ({
+      schema: 1, language: "python", source: { file: "a.py", text: "", entry: "" }, steps: [], ...extra,
+    });
+    expect(endNote(trace({}))).toBe("");
+    expect(endNote(trace({ truncated: true }))).toBe("The run went on past the step limit; only the first steps were recorded.");
+    expect(endNote(trace({ stopped: "timeout" }))).toBe("The run was stopped here, at the time limit.");
+    expect(endNote(trace({ stopped: "interrupt" }))).toBe("The run was stopped here, with Ctrl+C.");
+    expect(endNote(trace({ truncated: true, stopped: "timeout" }))).toBe(
+      "The run went on past the step limit, so only the first steps were recorded, and it was stopped at the time limit.",
+    );
   });
 
   it("reads #step=n links and keeps them in range", () => {

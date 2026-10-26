@@ -35,10 +35,11 @@ class Source(Protocol):
     def start(self) -> None: ...
 
     def stop(self) -> None:
-        """Stop delivering events, for example when the step limit is reached."""
+        """Stop delivering events, for example when the step limit is reached. Does nothing
+        before start(), since a run can be stopped while the file is still loading."""
 
     def close(self) -> None:
-        """Undo everything start() did. Safe to call after stop()."""
+        """Undo everything start() did. Safe to call after stop(), or without start()."""
 
 
 def open_source(recorder: Recorder, backend: Backend = "auto") -> Source:
@@ -62,17 +63,21 @@ class Settrace:
 
     def __init__(self, recorder: Recorder) -> None:
         self.recorder = recorder
+        self.started = False
         self.previous: Callable[..., Any] | None = None
 
     def start(self) -> None:
         self.previous = sys.gettrace()
+        self.started = True
         sys.settrace(self.on_call)
 
     def stop(self) -> None:
-        sys.settrace(None)
+        if self.started:
+            sys.settrace(None)
 
     def close(self) -> None:
-        sys.settrace(self.previous)  # whatever was tracing before (a debugger, coverage) carries on
+        if self.started:  # whatever was tracing before (a debugger, coverage) carries on
+            sys.settrace(self.previous)
 
     def on_call(self, frame: FrameType, event: str, arg: object) -> Any:
         """The global hook, asked about every new frame: trace the user's file, skip the rest."""
@@ -120,6 +125,7 @@ if sys.version_info >= (3, 12):
         def __init__(self, recorder: Recorder, tool: int) -> None:
             self.recorder = recorder
             self.tool = tool
+            self.started = False
             self.thread = threading.get_ident()
             self.codes: set[CodeType] = set()  # the user's code objects, with local events on
             self.lines: dict[tuple[CodeType, int], int | None] = {}  # (code, offset) -> line
@@ -142,17 +148,22 @@ if sys.version_info >= (3, 12):
 
         def start(self) -> None:
             _mon.use_tool_id(self.tool, "runreel")
+            self.started = True
             for event, callback in self.callbacks.items():
                 _mon.register_callback(self.tool, event, callback)
             _mon.restart_events()  # code switched off in an earlier recording may be the user's now
             _mon.set_events(self.tool, _GLOBAL)
 
         def stop(self) -> None:
+            if not self.started:
+                return
             _mon.set_events(self.tool, _E.NO_EVENTS)
             for code in self.codes:
                 _mon.set_local_events(self.tool, code, _E.NO_EVENTS)
 
         def close(self) -> None:
+            if not self.started:
+                return
             self.stop()
             for event in self.callbacks:
                 _mon.register_callback(self.tool, event, None)

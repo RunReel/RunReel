@@ -109,3 +109,4 @@ class Trace(_TraceBase, total=False):
     error: str
     stdout: list[list[Any]]  # [step index, text]
     truncated: Literal[True]
+    stopped: Literal["timeout", "interrupt"]  # the time limit ran out, or Ctrl+C

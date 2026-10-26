@@ -34,7 +34,8 @@
         "maxItems": 2
       }
     },
-    "truncated": { "const": true }
+    "truncated": { "const": true },
+    "stopped": { "enum": ["timeout", "interrupt"] }
   },
   "required": ["schema", "language", "source", "steps"],
   "additionalProperties": false,

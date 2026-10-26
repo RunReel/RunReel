@@ -11,6 +11,24 @@ export interface TraceFile {
   error?: string;
   stdout?: [number, string][];
   truncated?: true;
+  stopped?: "timeout" | "interrupt";
+}
+
+/** The badge for a run that was stopped, and how it was stopped. */
+export const STOPS = {
+  timeout: { badge: "timed out", how: "at the time limit" },
+  interrupt: { badge: "interrupted", how: "with Ctrl+C" },
+} as const;
+
+/** What the last step says about a run that ended early, or "" if it didn't. */
+export function endNote(trace: TraceFile): string {
+  const how = trace.stopped ? STOPS[trace.stopped].how : "";
+  if (trace.truncated) {
+    return how
+      ? `The run went on past the step limit, so only the first steps were recorded, and it was stopped ${how}.`
+      : "The run went on past the step limit; only the first steps were recorded.";
+  }
+  return how ? `The run was stopped here, ${how}.` : "";
 }
 
 /** For each source line, the first step that runs it, so lines can be shaded once they've run. */

@@ -2,7 +2,8 @@
 
 Only code from the user's file is traced. Library and built-in calls aren't stepped through,
 but their effects show up in the next state. A "line" state is taken just before that line
-runs. The events come from sys.monitoring on Python 3.12+ and sys.settrace before (events.py).
+runs. The events come from sys.monitoring on Python 3.12+ and sys.settrace before (events.py),
+and deadline.py stops a program that runs too long.
 """
 
 from __future__ import annotations
@@ -18,11 +19,13 @@ from types import FrameType
 from typing import Any, cast
 
 from runreel.trace.codec import encode
+from runreel.trace.deadline import Deadline
 from runreel.trace.events import Backend, open_source
 from runreel.trace.model import Event, Frame, State, Trace, Value
 from runreel.trace.serialize import Serializer
 
 MAX_STEPS = 5000
+TIMEOUT = 60.0  # seconds
 _RESUMABLE = inspect.CO_GENERATOR | inspect.CO_COROUTINE | inspect.CO_ASYNC_GENERATOR
 _HIDDEN_AT_TOP_LEVEL = (types.ModuleType, types.FunctionType, types.BuiltinFunctionType, type)
 
@@ -35,14 +38,19 @@ def record(
     max_steps: int = MAX_STEPS,
     stdin: str = "",
     backend: Backend = "auto",
+    timeout: float | None = TIMEOUT,
 ) -> Trace:
     """Run the file and record it.
 
     With call, the file is loaded as a module (its __main__ block doesn't run) and only the
     call, such as "dijkstra(G, 0)", is traced. Without it, the file runs as a script. With
     lines, only states on those lines are kept. After max_steps states the trace is marked
-    truncated and the program finishes untraced. The program reads stdin as its input, never
+    truncated and the program carries on untraced. The program reads stdin as its input, never
     the terminal, so it can't stop and wait; sys.stdin.buffer works for fast reads.
+
+    timeout is a time limit in seconds for the whole run, recorded or not (None for no limit).
+    When it runs out, or on Ctrl+C, the program is stopped, and the trace keeps what was
+    recorded, with "stopped" saying why. The time limit only works on the main thread.
 
     backend picks the event source; "auto" uses sys.monitoring when it can. Both record the
     same steps, so this only matters for testing and for working around a problem.
@@ -56,6 +64,8 @@ def record(
     recorder = _Recorder(str(file), lines, max_steps)
     source = open_source(recorder, backend)
     recorder.stop = source.stop
+    deadline = Deadline(timeout, source.stop)
+    recorder.check = deadline.check
     output = _Output(recorder)
     trace: Trace = {
         "schema": 1,
@@ -66,7 +76,8 @@ def record(
     saved = sys.modules.get(name)
     sys.modules[name] = module  # dataclasses and pickling look the module up by name
     try:
-        with contextlib.redirect_stdout(output), _input(stdin):
+        # A stop from the deadline ends the with block early, and its exit swallows the stop.
+        with contextlib.redirect_stdout(output), _input(stdin), deadline:
             entry = None
             if call is not None:
                 exec(code, module.__dict__)  # define the functions, untraced
@@ -94,6 +105,8 @@ def record(
         trace["stdout"] = output.chunks
     if recorder.truncated:
         trace["truncated"] = True
+    if deadline.stopped:
+        trace["stopped"] = deadline.stopped
     return trace
 
 
@@ -105,6 +118,7 @@ class _Recorder:
         self.serializer = Serializer()
         self.truncated = False
         self.stop: Callable[[], None] = lambda: None  # set to the event source's stop()
+        self.check: Callable[[], None] = lambda: None  # set to the deadline's check()
         self._fids: dict[int, int] = {}  # id() of a live frame -> its call id
         self._frames: dict[int, FrameType] = {}  # keeps those frames alive, so id() isn't reused
         self._next_fid = 1
@@ -120,6 +134,7 @@ class _Recorder:
     def step(self, frame: FrameType, event: str, line: int, value: object = None) -> None:
         """Record the state as the event in frame happens at line. value is the returned
         value or the exception."""
+        self.check()  # a stop that arrived while RunReel was busy lands here
         if self.lines is not None and line not in self.lines:
             return
         if len(self.states) >= self.max_steps:

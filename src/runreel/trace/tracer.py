@@ -19,7 +19,7 @@ from types import FrameType
 from typing import Any, cast
 
 from runreel.trace.codec import encode
-from runreel.trace.deadline import Deadline
+from runreel.trace.deadline import Deadline, TimeUp
 from runreel.trace.events import Backend, open_source
 from runreel.trace.model import Event, Frame, State, Trace, Value
 from runreel.trace.serialize import Serializer
@@ -53,6 +53,10 @@ def record(
     file's folder comes first on sys.path, so it can import the files next to it. Both are put
     back afterwards, and the modules it imported from its folder are forgotten. With call, a
     sys.exit() while the file loads raises ExitedWhileLoading, since the call never ran.
+
+    Whatever the program raises becomes the trace's error, even a BaseException such as
+    asyncio's CancelledError. The result and the error are described after recording stops,
+    so the program's own __repr__ or __str__ adds no steps.
 
     timeout is a time limit in seconds for the whole run, recorded or not (None for no limit).
     When it runs out, or on Ctrl+C, the program is stopped, and the trace keeps what was
@@ -95,18 +99,29 @@ def record(
                     raise ExitedWhileLoading(exit.code) from None
                 entry = compile(call, "<runreel call>", "eval")
             source.start()
+            returned: object = None
+            failure: BaseException | None = None
+            finished = False
             try:
                 if entry is None:
                     exec(code, module.__dict__)
                 else:
-                    trace["result"] = recorder.result(eval(entry, module.__dict__))
-            except SystemExit as exit:
-                if exit.code not in (None, 0):
-                    trace["error"] = f"SystemExit: {exit.code}"
-            except Exception as error:
-                trace["error"] = _describe(error)
+                    returned = eval(entry, module.__dict__)
+                    finished = True
+            except (TimeUp, KeyboardInterrupt):
+                raise  # a stop, which the deadline's exit deals with
+            except BaseException as error:
+                failure = error
             finally:
                 source.close()
+            # Only now that recording has stopped can the program's __repr__ or __str__ run.
+            if isinstance(failure, SystemExit):
+                if failure.code not in (None, 0):
+                    trace["error"] = f"SystemExit: {failure.code}"
+            elif failure is not None:
+                trace["error"] = _describe(failure)
+            elif finished:
+                trace["result"] = recorder.result(returned)
     finally:
         sys.argv = saved_argv
         sys.path[:] = saved_path
@@ -164,7 +179,10 @@ class _Recorder:
         result = self.serializer.value(value)
         shown = self.states[-1]["heap"] if self.states else {}
         if isinstance(result, dict) and "ref" in result and result["ref"] not in shown:
-            return repr(value)[:200]
+            try:
+                return repr(value)[:200]
+            except Exception:
+                return f"<{type(value).__name__} object>"  # its __repr__ failed
         return result
 
     def step(self, frame: FrameType, event: str, line: int, value: object = None) -> None:
@@ -241,7 +259,10 @@ def _hidden_at_top_level(name: str, value: object) -> bool:
 
 
 def _describe(error: BaseException) -> str:
-    text = str(error)
+    try:
+        text = str(error)
+    except Exception:
+        text = ""  # its __str__ failed, so the type's name has to do
     return f"{type(error).__name__}: {text}" if text else type(error).__name__
 
 

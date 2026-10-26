@@ -95,6 +95,37 @@ def test_exiting_while_the_file_loads_for_a_call_is_an_error(tmp_path: Path) -> 
         record(path, "f()")
 
 
+def test_anything_the_program_raises_is_its_error(tmp_path: Path) -> None:
+    path = program(
+        tmp_path,
+        "import asyncio\n\nclass Abort(BaseException):\n    pass\n\n"
+        "def f(error):\n    raise error\n",
+    )
+    assert record(path, "f(Abort('given up'))")["error"] == "Abort: given up"
+    trace = record(path, "f(asyncio.CancelledError())")
+    assert trace["error"] == "CancelledError" and "stopped" not in trace
+
+
+def test_the_result_and_error_are_described_after_recording_stops(tmp_path: Path) -> None:
+    # So the program's own __repr__ and __str__ add no steps, and a broken one falls back.
+    path = program(
+        tmp_path,
+        "class Shown:\n    def __repr__(self):\n        return 'shown'\n\n"
+        "class Broken:\n    def __repr__(self):\n        raise ValueError\n\n"
+        "class Oops(Exception):\n    def __str__(self):\n        return 'oops'\n\n"
+        "class Mute(Exception):\n    def __str__(self):\n        raise ValueError\n\n"
+        "def nothing():\n    return None\n\n"
+        "def fail(error):\n    raise error\n",
+    )
+    shown, broken = record(path, "nothing() or Shown()"), record(path, "nothing() or Broken()")
+    oops, mute = record(path, "fail(Oops())"), record(path, "fail(Mute())")
+    assert (shown["result"], broken["result"]) == ("shown", "<Broken object>")
+    assert (oops["error"], mute["error"]) == ("Oops: oops", "Mute")
+    for trace in (shown, broken, oops, mute):
+        called = {frame["fn"] for state in states(trace) for frame in state["stack"]}
+        assert called <= {"nothing", "fail"}
+
+
 def test_records_an_exception(tmp_path: Path) -> None:
     path = program(tmp_path, "def f(a):\n    return a[5]\n")
     trace = record(path, "f([1])")

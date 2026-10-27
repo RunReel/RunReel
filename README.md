@@ -30,6 +30,9 @@ uv run runreel run solution.py --stdin input.txt
 
 # only record lines 12 to 30, e.g. the loop you actually care about
 uv run runreel run sort.py --call "bubble([5, 2, 9, 1])" --lines 12-30
+
+# anything after -- goes to the program, as if you'd run python app.py --n 5
+uv run runreel run app.py -- --n 5
 ```
 
 `uv run runreel run --help` lists everything else.

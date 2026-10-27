@@ -11,7 +11,7 @@ from typing import Any
 
 from runreel import __version__
 from runreel.reel import write_reel
-from runreel.trace import MAX_STEPS, TIMEOUT, Trace, record, state_at
+from runreel.trace import MAX_STEPS, TIMEOUT, ExitedWhileLoading, Trace, record, state_at
 
 RUN_HELP = """\
 Run FILE, record every step and write the reel: one HTML file that opens offline.
@@ -21,7 +21,14 @@ yourself would. Only run code you trust.
 
 After the step limit the program keeps running unrecorded until it ends or hits the time
 limit. Ctrl+C stops it too, and the reel is still written.
+
+Arguments after -- go to the program: runreel run app.py -- --n 5 runs it the way
+python app.py --n 5 would.
 """
+CALL_HINT = (
+    "With --call the file is loaded first, untraced, so it should only define functions;"
+    ' put the code that runs the program under `if __name__ == "__main__":`'
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     run.add_argument("file", type=Path, help="Python file to run")
+    run.add_argument("args", nargs="*", metavar="ARGS", help="arguments for the program, after --")
     run.add_argument(
         "--call",
         help='expression to trace, e.g. "dijkstra(G, 0)"; without it FILE runs as a script',
@@ -127,6 +135,7 @@ def run(args: argparse.Namespace) -> int:
             args.call,
             lines=args.lines,
             max_steps=args.max_steps,
+            args=args.args,
             stdin=stdin,
             timeout=args.timeout or None,
         )
@@ -136,16 +145,13 @@ def run(args: argparse.Namespace) -> int:
         return fail(f"can't read {file}: it isn't UTF-8 text")
     except SyntaxError as error:
         return fail(f"{file} doesn't compile: {error.msg} (line {error.lineno})")
+    except ExitedWhileLoading as error:
+        return fail(f"{file} {error}. {CALL_HINT}")
     except Exception as error:  # raised while loading the file, before the traced call
         return fail(f"{file} failed while loading: {type(error).__name__}: {error}")
     if not trace["steps"] and "stopped" in trace:
         message = f"{file} was {stopped(trace, args.timeout)} before any step was recorded"
-        if args.call:
-            message += (
-                ". With --call the file is loaded first, untraced, so it should only define"
-                ' functions; put the code that runs the program under `if __name__ == "__main__":`'
-            )
-        return fail(message)
+        return fail(f"{message}. {CALL_HINT}" if args.call else message)
     out: Path = args.out or file.with_suffix(".reel.html")
     try:
         write_reel(trace, out, mark=not args.no_mark)

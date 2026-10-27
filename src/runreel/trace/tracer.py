@@ -13,7 +13,7 @@ import inspect
 import io
 import sys
 import types
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Sequence
 from pathlib import Path
 from types import FrameType
 from typing import Any, cast
@@ -36,6 +36,7 @@ def record(
     *,
     lines: Collection[int] | None = None,
     max_steps: int = MAX_STEPS,
+    args: Sequence[str] = (),
     stdin: str = "",
     backend: Backend = "auto",
     timeout: float | None = TIMEOUT,
@@ -47,6 +48,11 @@ def record(
     lines, only states on those lines are kept. After max_steps states the trace is marked
     truncated and the program carries on untraced. The program reads stdin as its input, never
     the terminal, so it can't stop and wait; sys.stdin.buffer works for fast reads.
+
+    The file runs as `python path *args` would run it: sys.argv is [path, *args], and the
+    file's folder comes first on sys.path, so it can import the files next to it. Both are put
+    back afterwards, and the modules it imported from its folder are forgotten. With call, a
+    sys.exit() while the file loads raises ExitedWhileLoading, since the call never ran.
 
     timeout is a time limit in seconds for the whole run, recorded or not (None for no limit).
     When it runs out, or on Ctrl+C, the program is stopped, and the trace keeps what was
@@ -75,12 +81,18 @@ def record(
     }
     saved = sys.modules.get(name)
     sys.modules[name] = module  # dataclasses and pickling look the module up by name
+    saved_argv, saved_path, imported = sys.argv, sys.path[:], set(sys.modules)
+    sys.argv = [str(path), *args]
+    sys.path.insert(0, str(file.parent))
     try:
         # A stop from the deadline ends the with block early, and its exit swallows the stop.
         with contextlib.redirect_stdout(output), _input(stdin), deadline:
             entry = None
             if call is not None:
-                exec(code, module.__dict__)  # define the functions, untraced
+                try:
+                    exec(code, module.__dict__)  # define the functions, untraced
+                except SystemExit as exit:
+                    raise ExitedWhileLoading(exit.code) from None
                 entry = compile(call, "<runreel call>", "eval")
             source.start()
             try:
@@ -96,6 +108,9 @@ def record(
             finally:
                 source.close()
     finally:
+        sys.argv = saved_argv
+        sys.path[:] = saved_path
+        _forget_imports(file.parent, imported)
         if saved is None:
             del sys.modules[name]
         else:
@@ -108,6 +123,27 @@ def record(
     if deadline.stopped:
         trace["stopped"] = deadline.stopped
     return trace
+
+
+class ExitedWhileLoading(Exception):
+    """The file called sys.exit() while it was loaded for a call, so the call never ran."""
+
+    def __init__(self, code: object) -> None:
+        super().__init__(f"exited while loading (sys.exit({'' if code is None else repr(code)}))")
+        self.code = code
+
+
+def _forget_imports(folder: Path, before: set[str]) -> None:
+    """Forget the modules the program imported from its own folder, so the next run imports
+    them afresh and they can't stand in for other modules of the same name. Only modules found
+    in that folder itself go: a library that happens to live somewhere under it stays."""
+    for name in set(sys.modules) - before:
+        location = getattr(sys.modules.get(name), "__file__", None)
+        if not location:
+            continue
+        found = Path(location).resolve()
+        if found.parent == folder or found.is_relative_to(folder / name.partition(".")[0]):
+            del sys.modules[name]
 
 
 class _Recorder:

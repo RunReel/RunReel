@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Step } from "../src/core/trace";
-import { actionForKey, endNote, firstSteps, printedBy, stepFromHash, type TraceFile } from "../src/ui/model";
+import { actionForKey, endNote, firstSteps, moveMs, printedBy, SPEEDS, stepFromHash, stepMs, type TraceFile } from "../src/ui/model";
 
 describe("player model", () => {
   it("finds the first step that runs each line", () => {
@@ -28,6 +28,13 @@ describe("player model", () => {
     expect(endNote(trace({ truncated: true, stopped: "timeout" }))).toBe(
       "The run went on past the step limit, so only the first steps were recorded, and it was stopped at the time limit.",
     );
+  });
+
+  it("slows the moves down with the playback, so 0.1× is slow motion", () => {
+    expect(SPEEDS).toEqual([0.1, 0.2, 0.5, 1, 2, 4, 8]);
+    expect(SPEEDS.map(stepMs)).toEqual([5000, 2500, 1000, 500, 250, 125, 62.5]);
+    expect(SPEEDS.map(moveMs)).toEqual([2600, 1300, 520, 260, 260, 260, 260]);
+    for (const speed of SPEEDS.filter((s) => s <= 1)) expect(moveMs(speed)).toBeLessThan(stepMs(speed));
   });
 
   it("reads #step=n links and keeps them in range", () => {

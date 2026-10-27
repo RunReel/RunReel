@@ -5,7 +5,7 @@ import { composeScene } from "../render/compose";
 import { ARROW_DEFS, esc, itemInner, round, type Item, type Scene } from "../render/scene";
 import { formatValue } from "../view/format";
 import { inferViews } from "../view/infer";
-import { actionForKey, endNote, firstSteps, printedBy, STOPS, stepFromHash, type TraceFile } from "./model";
+import { actionForKey, endNote, firstSteps, moveMs, printedBy, SPEEDS, STOPS, stepFromHash, stepMs, type TraceFile } from "./model";
 import { STYLES } from "./styles";
 
 export interface MountOptions {
@@ -17,9 +17,6 @@ export interface Player {
   show(n: number): void;
   readonly step: number;
 }
-
-const SPEEDS = [0.5, 1, 2, 4, 8];
-const BASE_STEPS_PER_SECOND = 2;
 
 export function mount(root: HTMLElement, trace: TraceFile, options: MountOptions = {}): Player {
   const doc = root.ownerDocument;
@@ -97,18 +94,24 @@ export function mount(root: HTMLElement, trace: TraceFile, options: MountOptions
   const stop = () => {
     if (timer !== undefined) clearInterval(timer);
     timer = undefined;
+    visual.style.removeProperty("--rr-move"); // a move already under way keeps its pace
     playButton.textContent = "▶";
     playButton.setAttribute("aria-label", "Play");
   };
-  const play = () => {
-    if (current >= count - 1) show(0);
+  const tick = () => (current >= count - 1 ? stop() : show(current + 1));
+  /** Play from here, or from the top if at the end. starting is false for a change of speed. */
+  const play = (starting: boolean) => {
     stop();
-    timer = setInterval(() => (current >= count - 1 ? stop() : show(current + 1)), 1000 / (BASE_STEPS_PER_SECOND * Number(speed.value)));
+    const rate = Number(speed.value);
+    visual.style.setProperty("--rr-move", `${moveMs(rate)}ms`);
+    if (current >= count - 1) show(0);
+    else if (starting) tick(); // the first step moves at once, rather than after a pause
+    timer = setInterval(tick, stepMs(rate));
     playButton.textContent = "⏸";
     playButton.setAttribute("aria-label", "Pause");
   };
   const act = (action: string | undefined) => {
-    if (action === "toggle") return timer === undefined ? play() : stop();
+    if (action === "toggle") return timer === undefined ? play(true) : stop();
     if (action) stop();
     if (action === "back") show(current - 1);
     if (action === "forward") show(current + 1);
@@ -121,7 +124,7 @@ export function mount(root: HTMLElement, trace: TraceFile, options: MountOptions
     stop();
     show(Number(range.value));
   });
-  speed.addEventListener("change", () => timer !== undefined && play());
+  speed.addEventListener("change", () => timer !== undefined && play(false));
   doc.addEventListener("keydown", (event) => {
     const target = event.target as HTMLElement | null;
     if (event.ctrlKey || event.metaKey || event.altKey || target?.matches?.("input, select, textarea")) return;

@@ -39,7 +39,7 @@ uv run runreel run sort.py --call "bubble([5, 2, 9, 1])" --lines 12-30
 - Python 3.10 or newer. I work on 3.13, and every change is tested on 3.10 through 3.15.
 - Three kinds of picture: arrays (with index variables like `i`, `lo`, `hi` and `mid` drawn as pointers), binary trees built from objects with `left` and `right`, and graphs stored as a dict of neighbour lists, optionally with weights.
 - Everything else still shows up in the variables pane, so you can follow any program, just without a drawing.
-- It records the first 5,000 steps, and big collections show their first 200 items. A 5,000-step run takes about a third of a second to record on my Chromebook.
+- It records the first 5,000 steps, and big collections show their first 200 items.
 - After 5,000 steps the program keeps going unrecorded, until it finishes or has run for a minute (`--timeout` changes that), so an infinite loop won't hang it. Ctrl+C stops it too, and you still get the reel of what ran.
 
 ## What's coming

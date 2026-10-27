@@ -1,4 +1,6 @@
 /** The player's stylesheet. Colours come from the Okabe–Ito palette, which stays distinct for colour-blind viewers. */
+import { MOVE_MS } from "./model";
+
 export const STYLES = `
 :root {
   --rr-bg: #fbfaf7; --rr-surface: #ffffff; --rr-ink: #1d2433; --rr-muted: #6b7280; --rr-line: #d6d3cc;
@@ -76,8 +78,8 @@ html, body { margin: 0; height: 100%; background: var(--rr-bg); color: var(--rr-
 .rr-line.rr-active .rr-weight { fill: var(--rr-red); font-weight: 700; }
 .rr-arrowhead { fill: var(--rr-muted); }
 .rr-sub, .rr-weight, .rr-pointer text, .rr-index text { paint-order: stroke; stroke: var(--rr-bg); stroke-width: 4px; stroke-linejoin: round; }
-.rr-scene g[data-key] { transition: transform 260ms ease-out; }
-.rr-scene line { transition: x1 260ms, y1 260ms, x2 260ms, y2 260ms; }
+.rr-scene g[data-key] { transition: transform var(--rr-move, ${MOVE_MS}ms) ease-out; }
+.rr-scene line { transition: x1 var(--rr-move, ${MOVE_MS}ms), y1 var(--rr-move, ${MOVE_MS}ms), x2 var(--rr-move, ${MOVE_MS}ms), y2 var(--rr-move, ${MOVE_MS}ms); }
 @media (prefers-reduced-motion: reduce) { .rr-scene g[data-key], .rr-scene line { transition: none; } }
 @media (max-width: 760px) {
   .rr-app { grid-template-columns: 1fr; grid-template-rows: auto auto 40vh auto auto; grid-template-areas: "head" "visual" "code" "vars" "time"; height: auto; }

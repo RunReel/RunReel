@@ -97,17 +97,21 @@ def _diff(prev: State, cur: State, *, key: bool) -> Step:
             frames[str(frame["fid"])] = patch
     if frames:
         step["frames"] = frames
-    heap: dict[str, HeapObject | ObjectPatch] = {}
-    for oid in sorted(cur["heap"]):
-        obj, old = cur["heap"][oid], prev["heap"].get(oid)
-        entry = obj if old is None else _heap_entry(old, obj)
-        if entry is not None:
-            heap[str(oid)] = entry
-    if heap:
-        step["heap"] = heap
-    gone = sorted(oid for oid in prev["heap"] if oid not in cur["heap"])
-    if gone:
-        step["gc"] = gone
+    before, after = prev["heap"], cur["heap"]
+    if after is not before:  # the tracer hands back the same heap when nothing in it changed
+        # Unchanged objects are the very objects sent before, so they're skipped at C speed.
+        changed = compress(after, map(is_not, after.values(), map(before.get, after)))
+        heap: dict[str, HeapObject | ObjectPatch] = {}
+        for oid in sorted(changed):
+            obj, old = after[oid], before.get(oid)
+            entry = obj if old is None else _heap_entry(old, obj)
+            if entry is not None:
+                heap[str(oid)] = entry
+        if heap:
+            step["heap"] = heap
+        gone = sorted(before.keys() - after.keys())
+        if gone:
+            step["gc"] = gone
     if "ret" in cur:
         step["ret"] = cur["ret"]
     if "exc" in cur:

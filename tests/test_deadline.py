@@ -203,14 +203,16 @@ source = "def f(n):\\n    s = 0\\n    for i in range(n):\\n        s += i\\n    
 path = Path(tempfile.mkdtemp()) / "count.py"
 path.write_text(source)
 backends = ["settrace"] + (["monitoring"] if sys.version_info >= (3, 12) else [])
-namespace = {}
-exec(source, namespace)
-start = time.perf_counter()
-namespace["f"](1_000_000)  # how fast the program runs once it's past the step limit
-per_step = (time.perf_counter() - start) / 1_000_000
+per_step = 1.0
+for _ in range(3):  # time the recording itself, the fastest of three as the machine settles
+    start = time.perf_counter()
+    record(path, "f(300_000)", timeout=None, max_steps=20)
+    per_step = min(per_step, (time.perf_counter() - start) / 300_000)
 outcomes, strays = {}, 0
 for i in range(30):
-    n = int((0.05 + 0.2 * i / 29) / per_step)  # 0.05 to 0.25 s, around the limit
+    # 0.03 to 0.5 s, around the limit, which lands between 0.1 and 0.2 s: wide enough that
+    # some runs finish and some are stopped even if the timing above is off by a few times
+    n = int(0.03 * (0.5 / 0.03) ** (i / 29) / per_step)
     backend = backends[i % len(backends)]
     try:
         trace = record(path, f"f({n})", timeout=0.1, max_steps=20, backend=backend)
@@ -228,7 +230,7 @@ print(strays, restored, sorted(map(str, outcomes)))
     assert done.returncode == 0, done.stderr
     strays, restored, outcomes = done.stdout.split(" ", 2)
     assert (strays, restored) == ("0", "True")
-    assert "timeout" in outcomes  # some runs really did hit the limit
+    assert "None" in outcomes and "timeout" in outcomes  # runs ended on both sides of the limit
 
 
 def raised(call: Callable[[], object]) -> str | None:

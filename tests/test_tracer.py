@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import threading
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
@@ -184,6 +186,29 @@ def test_recording_runs_none_of_the_programs_code(tmp_path: Path, backend: Backe
     )
     printed = record(watched, backend=backend).get("stdout", [])
     assert [text for _, text in printed] == ["0\n"]
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_what_the_program_changes_in_the_interpreter_is_put_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: Backend
+) -> None:
+    (tmp_path / "elsewhere").mkdir()
+    monkeypatch.chdir(tmp_path)
+    path = program(
+        tmp_path,
+        "import os, sys, threading\n\ndef mine(*args):\n    return None\n\n"
+        "def f():\n    sys.settrace(mine)\n    sys.setprofile(mine)\n"
+        "    threading.settrace(mine)\n    threading.setprofile(mine)\n"
+        "    os.chdir('elsewhere')\n    return 1\n",
+    )
+
+    def interpreter() -> tuple[object, ...]:
+        hooks = sys.gettrace(), sys.getprofile(), threading.gettrace(), threading.getprofile()
+        return (*hooks, os.getcwd())
+
+    before = interpreter()
+    assert record(path, "f()", backend=backend)["result"] == 1
+    assert interpreter() == before
 
 
 class _NeverKept(dict[int, Any]):

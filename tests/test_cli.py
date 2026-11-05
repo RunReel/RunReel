@@ -106,6 +106,18 @@ def test_an_error_in_the_program_still_writes_the_reel(
     assert "error IndexError: list index out of range" in capsys.readouterr().out
 
 
+def test_a_program_that_changes_folder_still_gets_its_reel_next_to_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "moves.py").write_text("import os\nos.chdir('elsewhere')\nx = 1\n")
+    monkeypatch.chdir(tmp_path)
+    assert main(["run", "moves.py"]) == 0
+    assert (tmp_path / "moves.reel.html").exists()
+    assert not (tmp_path / "elsewhere" / "moves.reel.html").exists()
+    assert "reel: moves.reel.html" in capsys.readouterr().out
+
+
 def test_arguments_after_a_double_dash_go_to_the_program(tmp_path: Path) -> None:
     script = tmp_path / "args.py"
     script.write_text("import sys\nprint(sys.argv[1:])\n")

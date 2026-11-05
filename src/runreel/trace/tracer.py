@@ -11,7 +11,9 @@ from __future__ import annotations
 import contextlib
 import inspect
 import io
+import os
 import sys
+import threading
 import types
 from collections.abc import Callable, Collection, Iterator, Sequence
 from pathlib import Path
@@ -83,53 +85,44 @@ def record(
         "source": {"file": file.name, "text": text, "entry": call or ""},
         "steps": [],
     }
-    saved = sys.modules.get(name)
-    sys.modules[name] = module  # dataclasses and pickling look the module up by name
-    saved_argv, saved_path, imported = sys.argv, sys.path[:], set(sys.modules)
-    sys.argv = [str(path), *args]
-    sys.path.insert(0, str(file.parent))
-    try:
-        # A stop from the deadline ends the with block early, and its exit swallows the stop.
-        with contextlib.redirect_stdout(output), _input(stdin), deadline:
-            entry = None
-            if call is not None:
-                try:
-                    exec(code, module.__dict__)  # define the functions, untraced
-                except SystemExit as exit:
-                    raise ExitedWhileLoading(exit.code) from None
-                entry = compile(call, "<runreel call>", "eval")
-            source.start(code)
-            returned: object = None
-            failure: BaseException | None = None
-            finished = False
+    # A stop from the deadline ends the with block early, and its exit swallows the stop.
+    with (
+        _put_back(module, [str(path), *args], file.parent),
+        contextlib.redirect_stdout(output),
+        _input(stdin),
+        deadline,
+    ):
+        entry = None
+        if call is not None:
             try:
-                if entry is None:
-                    exec(code, module.__dict__)
-                else:
-                    returned = eval(entry, module.__dict__)
-                    finished = True
-            except (TimeUp, KeyboardInterrupt):
-                raise  # a stop, which the deadline's exit deals with
-            except BaseException as error:
-                failure = error
-            finally:
-                source.close()
-            # Only now that recording has stopped can the program's __repr__ or __str__ run.
-            if isinstance(failure, SystemExit):
-                if failure.code not in (None, 0):
-                    trace["error"] = f"SystemExit: {failure.code}"
-            elif failure is not None:
-                trace["error"] = _describe(failure)
-            elif finished:
-                trace["result"] = recorder.result(returned)
-    finally:
-        sys.argv = saved_argv
-        sys.path[:] = saved_path
-        _forget_imports(file.parent, imported)
-        if saved is None:
-            del sys.modules[name]
-        else:
-            sys.modules[name] = saved
+                exec(code, module.__dict__)  # define the functions, untraced
+            except SystemExit as exit:
+                raise ExitedWhileLoading(exit.code) from None
+            entry = compile(call, "<runreel call>", "eval")
+        source.start(code)
+        returned: object = None
+        failure: BaseException | None = None
+        finished = False
+        try:
+            if entry is None:
+                exec(code, module.__dict__)
+            else:
+                returned = eval(entry, module.__dict__)
+                finished = True
+        except (TimeUp, KeyboardInterrupt):
+            raise  # a stop, which the deadline's exit deals with
+        except BaseException as error:
+            failure = error
+        finally:
+            source.close()
+        # Only now that recording has stopped can the program's __repr__ or __str__ run.
+        if isinstance(failure, SystemExit):
+            if failure.code not in (None, 0):
+                trace["error"] = f"SystemExit: {failure.code}"
+        elif failure is not None:
+            trace["error"] = _describe(failure)
+        elif finished:
+            trace["result"] = recorder.result(returned)
     trace["steps"] = encode(recorder.states)
     if output.chunks:
         trace["stdout"] = output.chunks
@@ -138,6 +131,50 @@ def record(
     if deadline.stopped:
         trace["stopped"] = deadline.stopped
     return trace
+
+
+@contextlib.contextmanager
+def _put_back(module: types.ModuleType, argv: list[str], folder: Path) -> Iterator[None]:
+    """Set the interpreter up for the program as `python file args` would, and afterwards put
+    back everything the run could have changed in it: the module under its name, sys.argv,
+    sys.path and the modules imported from the program's folder, any tracer or profiler it
+    installed, for this thread or new ones, and the working directory."""
+    name = module.__name__
+    saved_module = sys.modules.get(name)
+    sys.modules[name] = module  # dataclasses and pickling look the module up by name
+    saved_argv, saved_path, imported = sys.argv, sys.path[:], set(sys.modules)
+    tracer, profiler = sys.gettrace(), sys.getprofile()
+    thread_tracer, thread_profiler = threading.gettrace(), threading.getprofile()
+    cwd = _cwd()
+    sys.argv = argv
+    sys.path.insert(0, str(folder))
+    try:
+        yield
+    finally:
+        sys.argv = saved_argv
+        sys.path[:] = saved_path
+        _forget_imports(folder, imported)
+        if saved_module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = saved_module
+        # Only where it changed, so a C tracer such as coverage's isn't swapped for a slow copy.
+        if sys.gettrace() is not tracer:
+            sys.settrace(tracer)
+        if sys.getprofile() is not profiler:
+            sys.setprofile(profiler)
+        threading.settrace(thread_tracer)  # None clears it
+        threading.setprofile(thread_profiler)
+        if cwd is not None and _cwd() != cwd:
+            with contextlib.suppress(OSError):  # the folder may be gone
+                os.chdir(cwd)
+
+
+def _cwd() -> str | None:
+    try:
+        return os.getcwd()
+    except OSError:  # the working directory was deleted
+        return None
 
 
 class ExitedWhileLoading(Exception):

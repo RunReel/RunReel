@@ -291,7 +291,8 @@ def _input(text: str) -> Iterator[None]:
 
 def _hidden_at_top_level(name: str, value: object) -> bool:
     """Module-level names that aren't the program's data: dunders, imports, functions, classes."""
-    return name.startswith("__") or isinstance(value, _HIDDEN_AT_TOP_LEVEL)
+    # issubclass, since isinstance can ask the object for its __class__, running its code
+    return name.startswith("__") or issubclass(type(value), _HIDDEN_AT_TOP_LEVEL)
 
 
 def _describe(error: BaseException) -> str:

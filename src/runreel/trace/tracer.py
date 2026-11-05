@@ -173,6 +173,9 @@ class _Recorder:
         self._fids: dict[int, int] = {}  # id() of a live frame -> its call id
         self._frames: dict[int, FrameType] = {}  # keeps those frames alive, so id() isn't reused
         self._next_fid = 1
+        # call id -> the frame as last sent, and the objects its variables refer to
+        self._kept: dict[int, tuple[Frame, list[object]]] = {}
+        self._ran: set[int] = set()  # id() of each frame that has run since the last step
 
     def result(self, value: object) -> Value:
         """The call's return value. It is a heap object only if some state already showed it."""
@@ -189,7 +192,9 @@ class _Recorder:
         """Record the state as the event in frame happens at line. value is the returned
         value or the exception."""
         self.check()  # a stop that arrived while RunReel was busy lands here
+        self._ran.add(id(frame))
         if self.lines is not None and line not in self.lines:
+            self._ran.add(id(self._next_to_run(frame, event)))
             return
         if len(self.states) >= self.max_steps:
             self.truncated = True
@@ -201,15 +206,7 @@ class _Recorder:
             if f.f_code.co_filename == self.file:
                 stack.append(f)
             f = f.f_back
-        frames: list[Frame] = [
-            {
-                "fid": self._fid(f),
-                "fn": f.f_code.co_name,
-                "line": line if f is frame else f.f_lineno,
-                "locals": self._locals(f),
-            }
-            for f in reversed(stack)
-        ]
+        frames = [self._frame(f, line if f is frame else f.f_lineno) for f in reversed(stack)]
         state: State = {"ev": cast(Event, event), "line": line, "stack": frames, "heap": {}}
         if event == "return":
             state["ret"] = self.serializer.value(value)
@@ -217,12 +214,47 @@ class _Recorder:
             state["exc"] = _describe(cast(BaseException, value))
         state["heap"] = self.serializer.heap()
         self.states.append(state)
+        self._ran = {id(self._next_to_run(frame, event))}
 
     def done(self, frame: FrameType) -> None:
         """A call has returned or unwound: forget its frame, unless it can resume (a generator
         or coroutine keeps its call id from one resumption to the next)."""
         if not frame.f_code.co_flags & _RESUMABLE:
-            self._frames.pop(self._fids.pop(id(frame), 0), None)
+            fid = self._fids.pop(id(frame), 0)
+            self._frames.pop(fid, None)
+            self._kept.pop(fid, None)
+
+    def _frame(self, f: FrameType, line: int) -> Frame:
+        """f as a trace frame. One that hasn't run since it was last sent is sent again as it
+        was, so a deep stack costs little per step: only a frame that runs can change its own
+        variables, except a closure's, through its cells, and module level's, through global."""
+        fid = self._fid(f)
+        code = f.f_code
+        kept = self._kept.get(fid)
+        if (
+            kept is not None
+            and id(f) not in self._ran
+            and not (code.co_cellvars or code.co_freevars)
+            and code.co_name != "<module>"
+        ):
+            sent, objects = kept
+            for x in objects:
+                self.serializer.value(x)  # so this step's heap still has them
+            return sent
+        shown, objects = self._locals(f)
+        sent = {"fid": fid, "fn": code.co_name, "line": line, "locals": shown}
+        self._kept[fid] = (sent, objects)
+        return sent
+
+    def _next_to_run(self, frame: FrameType, event: str) -> FrameType | None:
+        """The frame that runs on after this event: the same one, or after a return the nearest
+        frame of the user's file below it."""
+        if event != "return":
+            return frame
+        f = frame.f_back
+        while f is not None and f.f_code.co_filename != self.file:
+            f = f.f_back
+        return f
 
     def _fid(self, frame: FrameType) -> int:
         fid = self._fids.get(id(frame))
@@ -232,14 +264,18 @@ class _Recorder:
             self._frames[fid] = frame
         return fid
 
-    def _locals(self, frame: FrameType) -> dict[str, Value]:
+    def _locals(self, frame: FrameType) -> tuple[dict[str, Value], list[object]]:
+        """The frame's variables as trace values, and the objects among them."""
         top_level = frame.f_code.co_name == "<module>"
         shown: dict[str, Value] = {}
+        objects: list[object] = []
         for name, value in frame.f_locals.items():
             if name.startswith(".") or (top_level and _hidden_at_top_level(name, value)):
                 continue  # ".0" is a comprehension's hidden iterator
-            shown[name] = self.serializer.value(value)
-        return shown
+            shown[name] = sent = self.serializer.value(value)
+            if isinstance(sent, dict) and "ref" in sent:
+                objects.append(value)
+        return shown, objects
 
 
 @contextlib.contextmanager

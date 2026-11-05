@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 import sys
+from itertools import pairwise
 from pathlib import Path
+from typing import Any
 
 import pytest
 from test_codec import canonical, load_states
 from test_schema import VALIDATOR
 
-from runreel.trace import State, Trace, dumps, iter_states
+from runreel.trace import State, Trace, dumps, iter_states, tracer
+from runreel.trace.events import Backend
 from runreel.trace.tracer import ExitedWhileLoading, record
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -124,6 +127,89 @@ def test_the_result_and_error_are_described_after_recording_stops(tmp_path: Path
     for trace in (shown, broken, oops, mute):
         called = {frame["fn"] for state in states(trace) for frame in state["stack"]}
         assert called <= {"nothing", "fail"}
+
+
+BACKENDS = ["settrace"] + (["monitoring"] if sys.version_info >= (3, 12) else [])
+DEEP = "def f(n):\n    if n:\n        return 1 + f(n - 1)\n    return 0\n"
+# Programs where a frame below the running one changes, or could seem to.
+WAITING: dict[str, tuple[str, str | None, dict[str, Any]]] = {
+    "deep recursion": (DEEP, "f(40)", {}),
+    "a comprehension sets a variable, then calls": (
+        "class B:\n    @property\n    def d(self):\n        return 2\n\n"
+        "def f(bs):\n    return [b.d for b in bs]\n",
+        "f([B(), B()])",
+        {},
+    ),
+    "one line assigns, then calls": (
+        "def g(x):\n    return x\n\ndef f():\n    a = 1; b = g(a)\n    return b\n",
+        "f()",
+        {},
+    ),
+    "a closure changes the call below": (
+        "def f():\n    total = 0\n\n    def add(n):\n        nonlocal total\n        total += n\n\n"
+        "    for i in range(3):\n        add(i)\n    return total\n",
+        "f()",
+        {},
+    ),
+    "a function changes a global": (
+        "count = 0\n\ndef bump():\n    global count\n    count += 1\n\n"
+        "for _ in range(3):\n    bump()\n",
+        None,
+        {},
+    ),
+    "--lines skips the steps where the call below changes": (
+        "def g(x):\n    y = x * 2\n    return y\n\n"
+        "def f():\n    a = g(1); b = g(a)\n    return b\n",
+        "f()",
+        {"lines": [2]},  # g returns unrecorded, then f sets a with no step of its own
+    ),
+}
+
+
+class _NeverKept(dict[int, Any]):
+    def __setitem__(self, key: int, value: Any) -> None:
+        pass
+
+
+class _Rebuilding(tracer._Recorder):
+    """Sends every frame afresh at every step, as the recorder did before it kept them."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._kept = _NeverKept()
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("name", [*WAITING, "generators.py", "objects.py"])
+def test_a_frame_that_hasnt_run_is_sent_as_it_was(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, backend: Backend
+) -> None:
+    if name in WAITING:
+        text, call, options = WAITING[name]
+        path = program(tmp_path, text)
+    else:
+        path, call, options = FIXTURES / "programs" / name, "main()", {}
+    kept = record(path, call, backend=backend, **options)
+    monkeypatch.setattr(tracer, "_Recorder", _Rebuilding)
+    assert record(path, call, backend=backend, **options) == kept
+
+
+def test_a_deep_stack_shares_the_frames_waiting_below(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorders: list[tracer._Recorder] = []
+
+    class Watched(tracer._Recorder):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            recorders.append(self)
+
+    monkeypatch.setattr(tracer, "_Recorder", Watched)
+    record(program(tmp_path, DEEP), "f(40)")
+    states = recorders[0].states
+    deep = [(a, b) for a, b in pairwise(states) if min(len(a["stack"]), len(b["stack"])) > 1]
+    shared = sum(a["stack"][0] is b["stack"][0] for a, b in deep)
+    assert shared > 0.9 * len(deep)  # the outermost call runs only at the start and the end
 
 
 def test_records_an_exception(tmp_path: Path) -> None:

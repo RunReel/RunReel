@@ -10,8 +10,8 @@ import copy
 import json
 import math
 from collections.abc import Iterable, Iterator, Sequence
-from itertools import compress, count
-from operator import is_not
+from itertools import chain, compress, count, repeat
+from operator import is_not, itemgetter
 from typing import Any, cast
 
 from runreel.trace.model import (
@@ -28,6 +28,7 @@ from runreel.trace.model import (
 KEY_EVERY = 100
 MAX_EDITS = 16  # a list diff stops looking past this many removed plus inserted items
 SMALL_STRETCH = 8  # a changed stretch this short is sent as one splice, without a diff
+_FID = itemgetter("fid")
 
 
 def encode(states: Iterable[State], *, key_every: int = KEY_EVERY) -> list[Step]:
@@ -85,13 +86,19 @@ def _diff(prev: State, cur: State, *, key: bool) -> Step:
     step: Step = {"ev": cur["ev"], "line": cur["line"]}
     if key:
         step["key"] = True
-    fids = [frame["fid"] for frame in cur["stack"]]
-    if fids != [frame["fid"] for frame in prev["stack"]]:
+    old_stack, new_stack = prev["stack"], cur["stack"]
+    fids = list(map(_FID, new_stack))
+    if fids != list(map(_FID, old_stack)):
         step["stack"] = fids
-    old_frames = {frame["fid"]: frame for frame in prev["stack"]}
+    old_frames = dict(zip(map(_FID, old_stack), old_stack, strict=True))
+    top = len(new_stack) - 1
+    # A frame that is the very one sent last step hasn't changed, since the tracer sends a frame
+    # that hasn't run again as it was, so only the others are compared, and the running one.
+    renewed = set(compress(count(), map(is_not, new_stack, chain(old_stack, repeat(None)))))
     frames: dict[str, FramePatch] = {}
-    for depth, frame in enumerate(cur["stack"]):
-        top_line = cur["line"] if depth == len(cur["stack"]) - 1 else None
+    for depth in sorted(renewed | {top}) if new_stack else []:
+        frame = new_stack[depth]
+        top_line = cur["line"] if depth == top else None
         patch = _frame_patch(old_frames.get(frame["fid"]), frame, top_line)
         if patch:
             frames[str(frame["fid"])] = patch

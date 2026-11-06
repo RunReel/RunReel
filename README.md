@@ -40,7 +40,8 @@ uv run runreel run app.py -- --n 5
 ## What works right now
 
 - Python 3.10 or newer. I work on 3.13, and every change is tested on 3.10 through 3.15.
-- Five kinds of picture: arrays (with index variables like `i`, `lo`, `hi` and `mid` drawn as pointers), grids, binary trees built from objects with `left` and `right`, linked lists built from objects with `next` (and `prev`, if they're doubly linked), and graphs stored as a dict of neighbour lists, optionally with weights.
+- Five kinds of picture: arrays (with index variables like `i`, `lo`, `hi` and `mid` drawn as pointers), grids, binary trees, linked lists, and graphs stored as a dict of neighbour lists, optionally with weights.
+- Trees and linked lists are recognised by how their objects point at each other, whatever the fields are called. If objects of one class link to each other through one field, that's a linked list. Through two, it's a binary tree, or a doubly linked list if the two point back at each other. With fields called `left` and `right`, or `next` and `prev`, the picture starts from the very first node; with other names, once two nodes are linked.
 - A grid is a list of lists, or a list of strings you index as `grid[r][c]`. It outlines the cell your code is working on, so on a DP table like `dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])` you see which cells it reads to fill the next one. `examples/lcs.py` shows one filling up.
 - A linked list gets a row per chain of nodes, with your variables under the nodes they point at. A `next` pointer that just changed is highlighted, so in `examples/reverse_list.py` you watch the pointers turn round one at a time as the nodes move over to the reversed list. Loops and lists that join up are drawn too.
 - Everything else still shows up in the variables pane, so you can follow any program, just without a drawing.

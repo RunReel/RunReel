@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import sys
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from types import CodeType, FrameType
 from typing import Any, Literal, Protocol
 
@@ -32,7 +32,8 @@ class Recorder(Protocol):
 
 
 class Source(Protocol):
-    def start(self) -> None: ...
+    def start(self, code: CodeType) -> None:
+        """Start delivering events. code is the user's file, compiled."""
 
     def stop(self) -> None:
         """Stop delivering events, for example when the step limit is reached. Does nothing
@@ -66,8 +67,8 @@ class Settrace:
         self.started = False
         self.previous: Callable[..., Any] | None = None
 
-    def start(self) -> None:
-        self.previous = sys.gettrace()
+    def start(self, code: CodeType) -> None:
+        self.previous = sys.gettrace()  # code isn't needed: settrace is asked about every frame
         self.started = True
         sys.settrace(self.on_call)
 
@@ -146,13 +147,19 @@ if sys.version_info >= (3, 12):
         def free_tool() -> int | None:
             return next((tool for tool in _TOOL_IDS if _mon.get_tool(tool) is None), None)
 
-        def start(self) -> None:
+        def start(self, code: CodeType) -> None:
             _mon.use_tool_id(self.tool, "runreel")
             self.started = True
             for event, callback in self.callbacks.items():
                 _mon.register_callback(self.tool, event, callback)
             _mon.restart_events()  # code switched off in an earlier recording may be the user's now
             _mon.set_events(self.tool, _GLOBAL)
+            # All of the file's code gets its local events now, not only when it first starts:
+            # a generator started before recording, or first on another thread, only resumes.
+            for nested in _nested_code(code):
+                if nested.co_filename == self.recorder.file and nested not in self.codes:
+                    self.codes.add(nested)
+                    _mon.set_local_events(self.tool, nested, _LOCAL)
 
         def stop(self) -> None:
             if not self.started:
@@ -243,3 +250,11 @@ if sys.version_info >= (3, 12):
                 found = (line for start, end, line in code.co_lines() if start <= offset < end)
                 self.lines[key] = next(found, None)
             return self.lines[key]
+
+
+def _nested_code(code: CodeType) -> Iterator[CodeType]:
+    """code and every code object inside it: functions, methods, lambdas, classes, generators."""
+    yield code
+    for const in code.co_consts:
+        if isinstance(const, CodeType):
+            yield from _nested_code(const)

@@ -98,7 +98,7 @@ def record(
                 except SystemExit as exit:
                     raise ExitedWhileLoading(exit.code) from None
                 entry = compile(call, "<runreel call>", "eval")
-            source.start()
+            source.start(code)
             returned: object = None
             failure: BaseException | None = None
             finished = False

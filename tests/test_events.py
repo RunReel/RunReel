@@ -16,7 +16,8 @@ SEARCH = (ROOT / "examples" / "binary_search.py", "binary_search([1, 3, 4, 7, 9,
 
 # Programs that exercise every kind of event: generators (send, throw, close, yield from),
 # exceptions caught, re-raised and escaping, methods called from C, one-line loops,
-# comprehensions, asyncio, a second thread, a script reading input, and both filters.
+# comprehensions, asyncio, a second thread, generators started outside the recording, a
+# script reading input, and both filters.
 CASES: dict[str, tuple[Path, str | None, dict[str, Any]]] = {
     "binary search": (*SEARCH, {}),
     "BST insert": (ROOT / "examples" / "bst_insert.py", "build([5, 3, 8, 1, 4])", {}),
@@ -28,6 +29,7 @@ CASES: dict[str, tuple[Path, str | None, dict[str, Any]]] = {
     "loops": (PROGRAMS / "loops.py", "main()", {}),
     "asyncio": (PROGRAMS / "tasks.py", "main()", {}),
     "threads": (PROGRAMS / "threads.py", "main()", {}),
+    "resumed generators": (PROGRAMS / "resumed.py", "main()", {}),
     "script": (PROGRAMS / "script.py", None, {"stdin": "2\n7 3 9\n"}),
     "truncated": (ROOT / "examples" / "dijkstra.py", "dijkstra(G, 0)", {"max_steps": 20}),
     "selected lines": (*SEARCH, {"lines": range(3, 5)}),

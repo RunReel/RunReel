@@ -70,6 +70,7 @@ html, body { margin: 0; height: 100%; background: var(--rr-bg); color: var(--rr-
 .rr-pointer text { fill: var(--rr-blue); font: 600 12px var(--rr-mono); }
 .rr-title text { fill: var(--rr-ink); font: 600 13px var(--rr-mono); }
 .rr-more text { fill: var(--rr-muted); font: 12px var(--rr-font); }
+.rr-null text { fill: var(--rr-muted); font: 12px var(--rr-mono); }
 .rr-circle circle { fill: var(--rr-surface); stroke: var(--rr-line); stroke-width: 2; }
 .rr-circle .rr-sub { fill: var(--rr-muted); font: 11px var(--rr-mono); }
 .rr-circle.rr-current circle { fill: var(--rr-current-bg); stroke: var(--rr-red); stroke-width: 2.5; }

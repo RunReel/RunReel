@@ -1,0 +1,960 @@
+{
+ "schema": 1,
+ "language": "python",
+ "source": {
+  "file": "reverse_list.py",
+  "text": "class Node:\n    def __init__(self, value, next=None):\n        self.value = value\n        self.next = next\n\n\ndef build(values):\n    \"\"\"A linked list holding values in order, built front to back.\"\"\"\n    head = tail = None\n    for value in values:\n        node = Node(value)\n        if tail is None:\n            head = node\n        else:\n            tail.next = node\n        tail = node\n    return head\n\n\ndef reverse(head):\n    \"\"\"Reverse a linked list in place, turning its next pointers round one at a time.\"\"\"\n    prev = None\n    cur = head\n    while cur is not None:\n        nxt = cur.next\n        cur.next = prev\n        prev = cur\n        cur = nxt\n    return prev\n\n\nif __name__ == \"__main__\":\n    node = reverse(build([1, 2, 3, 4, 5]))\n    while node is not None:\n        print(node.value)\n        node = node.next\n",
+  "entry": "reverse(build([1, 2, 3, 4, 5]))"
+ },
+ "steps": [
+  {
+   "ev": "call",
+   "line": 7,
+   "key": true,
+   "stack": [
+    1
+   ],
+   "frames": {
+    "1": {
+     "fn": "build",
+     "set": {
+      "values": {
+       "ref": 1
+      }
+     }
+    }
+   },
+   "heap": {
+    "1": {
+     "t": "seq",
+     "cls": "list",
+     "items": [
+      1,
+      2,
+      3,
+      4,
+      5
+     ]
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 9
+  },
+  {
+   "ev": "line",
+   "line": 10,
+   "frames": {
+    "1": {
+     "set": {
+      "head": null,
+      "tail": null
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 11,
+   "frames": {
+    "1": {
+     "set": {
+      "value": 1
+     }
+    }
+   }
+  },
+  {
+   "ev": "call",
+   "line": 2,
+   "stack": [
+    1,
+    2
+   ],
+   "frames": {
+    "2": {
+     "fn": "__init__",
+     "set": {
+      "self": {
+       "ref": 2
+      },
+      "value": 1,
+      "next": null
+     }
+    }
+   },
+   "heap": {
+    "2": {
+     "t": "obj",
+     "cls": "Node",
+     "fields": {}
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 3
+  },
+  {
+   "ev": "line",
+   "line": 4,
+   "heap": {
+    "2": {
+     "set": {
+      "value": 1
+     }
+    }
+   }
+  },
+  {
+   "ev": "return",
+   "line": 4,
+   "heap": {
+    "2": {
+     "set": {
+      "next": null
+     }
+    }
+   },
+   "ret": null
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "stack": [
+    1
+   ],
+   "frames": {
+    "1": {
+     "set": {
+      "node": {
+       "ref": 2
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 13
+  },
+  {
+   "ev": "line",
+   "line": 16,
+   "frames": {
+    "1": {
+     "set": {
+      "head": {
+       "ref": 2
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 10,
+   "frames": {
+    "1": {
+     "set": {
+      "tail": {
+       "ref": 2
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 11,
+   "frames": {
+    "1": {
+     "set": {
+      "value": 2
+     }
+    }
+   }
+  },
+  {
+   "ev": "call",
+   "line": 2,
+   "stack": [
+    1,
+    3
+   ],
+   "frames": {
+    "3": {
+     "fn": "__init__",
+     "set": {
+      "self": {
+       "ref": 3
+      },
+      "value": 2,
+      "next": null
+     }
+    }
+   },
+   "heap": {
+    "3": {
+     "t": "obj",
+     "cls": "Node",
+     "fields": {}
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 3
+  },
+  {
+   "ev": "line",
+   "line": 4,
+   "heap": {
+    "3": {
+     "set": {
+      "value": 2
+     }
+    }
+   }
+  },
+  {
+   "ev": "return",
+   "line": 4,
+   "heap": {
+    "3": {
+     "set": {
+      "next": null
+     }
+    }
+   },
+   "ret": null
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "stack": [
+    1
+   ],
+   "frames": {
+    "1": {
+     "set": {
+      "node": {
+       "ref": 3
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 15
+  },
+  {
+   "ev": "line",
+   "line": 16,
+   "heap": {
+    "2": {
+     "set": {
+      "next": {
+       "ref": 3
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 10,
+   "frames": {
+    "1": {
+     "set": {
+      "tail": {
+       "ref": 3
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 11,
+   "frames": {
+    "1": {
+     "set": {
+      "value": 3
+     }
+    }
+   }
+  },
+  {
+   "ev": "call",
+   "line": 2,
+   "stack": [
+    1,
+    4
+   ],
+   "frames": {
+    "4": {
+     "fn": "__init__",
+     "set": {
+      "self": {
+       "ref": 4
+      },
+      "value": 3,
+      "next": null
+     }
+    }
+   },
+   "heap": {
+    "4": {
+     "t": "obj",
+     "cls": "Node",
+     "fields": {}
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 3
+  },
+  {
+   "ev": "line",
+   "line": 4,
+   "heap": {
+    "4": {
+     "set": {
+      "value": 3
+     }
+    }
+   }
+  },
+  {
+   "ev": "return",
+   "line": 4,
+   "heap": {
+    "4": {
+     "set": {
+      "next": null
+     }
+    }
+   },
+   "ret": null
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "stack": [
+    1
+   ],
+   "frames": {
+    "1": {
+     "set": {
+      "node": {
+       "ref": 4
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 15
+  },
+  {
+   "ev": "line",
+   "line": 16,
+   "heap": {
+    "3": {
+     "set": {
+      "next": {
+       "ref": 4
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 10,
+   "frames": {
+    "1": {
+     "set": {
+      "tail": {
+       "ref": 4
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 11,
+   "frames": {
+    "1": {
+     "set": {
+      "value": 4
+     }
+    }
+   }
+  },
+  {
+   "ev": "call",
+   "line": 2,
+   "stack": [
+    1,
+    5
+   ],
+   "frames": {
+    "5": {
+     "fn": "__init__",
+     "set": {
+      "self": {
+       "ref": 5
+      },
+      "value": 4,
+      "next": null
+     }
+    }
+   },
+   "heap": {
+    "5": {
+     "t": "obj",
+     "cls": "Node",
+     "fields": {}
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 3
+  },
+  {
+   "ev": "line",
+   "line": 4,
+   "heap": {
+    "5": {
+     "set": {
+      "value": 4
+     }
+    }
+   }
+  },
+  {
+   "ev": "return",
+   "line": 4,
+   "heap": {
+    "5": {
+     "set": {
+      "next": null
+     }
+    }
+   },
+   "ret": null
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "stack": [
+    1
+   ],
+   "frames": {
+    "1": {
+     "set": {
+      "node": {
+       "ref": 5
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 15
+  },
+  {
+   "ev": "line",
+   "line": 16,
+   "heap": {
+    "4": {
+     "set": {
+      "next": {
+       "ref": 5
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 10,
+   "frames": {
+    "1": {
+     "set": {
+      "tail": {
+       "ref": 5
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 11,
+   "frames": {
+    "1": {
+     "set": {
+      "value": 5
+     }
+    }
+   }
+  },
+  {
+   "ev": "call",
+   "line": 2,
+   "stack": [
+    1,
+    6
+   ],
+   "frames": {
+    "6": {
+     "fn": "__init__",
+     "set": {
+      "self": {
+       "ref": 6
+      },
+      "value": 5,
+      "next": null
+     }
+    }
+   },
+   "heap": {
+    "6": {
+     "t": "obj",
+     "cls": "Node",
+     "fields": {}
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 3
+  },
+  {
+   "ev": "line",
+   "line": 4,
+   "heap": {
+    "6": {
+     "set": {
+      "value": 5
+     }
+    }
+   }
+  },
+  {
+   "ev": "return",
+   "line": 4,
+   "heap": {
+    "6": {
+     "set": {
+      "next": null
+     }
+    }
+   },
+   "ret": null
+  },
+  {
+   "ev": "line",
+   "line": 12,
+   "stack": [
+    1
+   ],
+   "frames": {
+    "1": {
+     "set": {
+      "node": {
+       "ref": 6
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 15
+  },
+  {
+   "ev": "line",
+   "line": 16,
+   "heap": {
+    "5": {
+     "set": {
+      "next": {
+       "ref": 6
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 10,
+   "frames": {
+    "1": {
+     "set": {
+      "tail": {
+       "ref": 6
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 17
+  },
+  {
+   "ev": "return",
+   "line": 17,
+   "ret": {
+    "ref": 2
+   }
+  },
+  {
+   "ev": "call",
+   "line": 20,
+   "stack": [
+    7
+   ],
+   "frames": {
+    "7": {
+     "fn": "reverse",
+     "set": {
+      "head": {
+       "ref": 2
+      }
+     }
+    }
+   },
+   "gc": [
+    1
+   ]
+  },
+  {
+   "ev": "line",
+   "line": 22
+  },
+  {
+   "ev": "line",
+   "line": 23,
+   "frames": {
+    "7": {
+     "set": {
+      "prev": null
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 24,
+   "frames": {
+    "7": {
+     "set": {
+      "cur": {
+       "ref": 2
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 25
+  },
+  {
+   "ev": "line",
+   "line": 26,
+   "frames": {
+    "7": {
+     "set": {
+      "nxt": {
+       "ref": 3
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 27,
+   "heap": {
+    "2": {
+     "set": {
+      "next": null
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 28,
+   "frames": {
+    "7": {
+     "set": {
+      "prev": {
+       "ref": 2
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 24,
+   "frames": {
+    "7": {
+     "set": {
+      "cur": {
+       "ref": 3
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 25
+  },
+  {
+   "ev": "line",
+   "line": 26,
+   "frames": {
+    "7": {
+     "set": {
+      "nxt": {
+       "ref": 4
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 27,
+   "heap": {
+    "3": {
+     "set": {
+      "next": {
+       "ref": 2
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 28,
+   "frames": {
+    "7": {
+     "set": {
+      "prev": {
+       "ref": 3
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 24,
+   "frames": {
+    "7": {
+     "set": {
+      "cur": {
+       "ref": 4
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 25
+  },
+  {
+   "ev": "line",
+   "line": 26,
+   "frames": {
+    "7": {
+     "set": {
+      "nxt": {
+       "ref": 5
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 27,
+   "heap": {
+    "4": {
+     "set": {
+      "next": {
+       "ref": 3
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 28,
+   "frames": {
+    "7": {
+     "set": {
+      "prev": {
+       "ref": 4
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 24,
+   "frames": {
+    "7": {
+     "set": {
+      "cur": {
+       "ref": 5
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 25
+  },
+  {
+   "ev": "line",
+   "line": 26,
+   "frames": {
+    "7": {
+     "set": {
+      "nxt": {
+       "ref": 6
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 27,
+   "heap": {
+    "5": {
+     "set": {
+      "next": {
+       "ref": 4
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 28,
+   "frames": {
+    "7": {
+     "set": {
+      "prev": {
+       "ref": 5
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 24,
+   "frames": {
+    "7": {
+     "set": {
+      "cur": {
+       "ref": 6
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 25
+  },
+  {
+   "ev": "line",
+   "line": 26,
+   "frames": {
+    "7": {
+     "set": {
+      "nxt": null
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 27,
+   "heap": {
+    "6": {
+     "set": {
+      "next": {
+       "ref": 5
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 28,
+   "frames": {
+    "7": {
+     "set": {
+      "prev": {
+       "ref": 6
+      }
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 24,
+   "frames": {
+    "7": {
+     "set": {
+      "cur": null
+     }
+    }
+   }
+  },
+  {
+   "ev": "line",
+   "line": 29
+  },
+  {
+   "ev": "return",
+   "line": 29,
+   "ret": {
+    "ref": 6
+   }
+  }
+ ],
+ "result": {
+  "ref": 6
+ }
+}

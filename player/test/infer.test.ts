@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { stateAt, type State, type Step } from "../src/core/trace";
-import { inferViews, type ArrayView, type GraphView, type GridView, type TreeView } from "../src/view/infer";
+import { inferViews, type ArrayView, type GraphView, type GridView, type ListView, type TreeView } from "../src/view/infer";
 import binarySearch from "../../tests/fixtures/golden/py312/binary_search.json";
 import bstInsert from "../../tests/fixtures/golden/py312/bst_insert.json";
 import dijkstra from "../../tests/fixtures/golden/py312/dijkstra.json";
 import lcs from "../../tests/fixtures/golden/py312/lcs.json";
+import reverseList from "../../tests/fixtures/golden/py312/reverse_list.json";
 
 const steps = (trace: { steps: unknown }) => trace.steps as Step[];
 const viewsAt = (trace: { steps: unknown; source?: { text: string } }, n: number) =>
@@ -14,6 +15,11 @@ const viewsAt = (trace: { steps: unknown; source?: { text: string } }, n: number
 /** One frame whose locals are given, with the heap objects they refer to. */
 const stateWith = (locals: Record<string, unknown>, heap: Record<string, unknown>): State =>
   ({ ev: "line", line: 1, stack: [{ fid: 1, fn: "f", line: 1, locals }], heap }) as State;
+
+/** Linked list nodes with ids "1", "2", …: [value, id next points at (null for None), fields to add]. */
+const nodes = (...list: [number | string, number | null, Record<string, unknown>?][]) =>
+  Object.fromEntries(list.map(([value, next, more], i) => [String(i + 1), { t: "obj", cls: "Node", fields: { value, next: next === null ? null : { ref: next }, ...more } }]));
+const texts = (view: ListView) => view.rows.map((row) => row.nodes.map((id) => view.nodes[id]!.text));
 
 describe("shape inference", () => {
   it("shows a list of numbers as an array with index pointers", () => {
@@ -111,6 +117,56 @@ describe("shape inference", () => {
     expect([view.top, view.left, view.rows.length, view.rows[0]!.length]).toEqual([50, 0, 40, 60]);
     expect([view.height, view.width, view.focus]).toEqual([100, 100, { row: 70, col: 5 }]);
     expect(view.rows[20]![5]!.key).toBe("1:70:5");
+  });
+
+  it("shows objects with next as a linked list, a row per chain, with the pointers on it", () => {
+    // Step 61, line 27: reverse has just set cur.next = prev, so 2 now points back at 1.
+    const [view] = viewsAt(reverseList, 61) as [ListView];
+    expect([view.kind, view.label]).toEqual(["list", "head"]);
+    expect(texts(view)).toEqual([["2", "1"], ["3", "4", "5"]]);
+    expect(view.rows.map((row) => row.end)).toEqual([{ kind: "none" }, { kind: "none" }]);
+    const relinked = Object.values(view.nodes).filter((node) => node.relinked).map((node) => node.text);
+    expect(relinked).toEqual(["2"]);
+    expect(view.pointers.map((p) => [p.name, view.nodes[p.node]!.text])).toEqual([["head", "1"], ["prev", "1"], ["cur", "2"], ["nxt", "3"]]);
+    // Step 34, the end of Node.__init__ for 4: the title stays build's head, not the new node's self.
+    expect(viewsAt(reverseList, 34).find((v) => v.kind === "list")!.label).toBe("head");
+  });
+
+  it("ends a row with an arrow back into a loop, or across to the list it joins", () => {
+    const loop = nodes([3, 2], [2, 3], [0, 4], [-4, 2], [5, 3]);
+    const [view] = inferViews(stateWith({ head: { ref: 1 }, b: { ref: 5 } }, loop)) as [ListView];
+    expect(view.rows).toEqual([
+      { nodes: ["1", "2", "3", "4"], skipped: 0, end: { kind: "node", to: "2" } },
+      { nodes: ["5"], skipped: 0, end: { kind: "node", to: "3" } },
+    ]);
+  });
+
+  it("puts the row with the oldest node first, so rows hold still as nodes move between them", () => {
+    // 3 -> 1 starts at a newer node than 2 does, but holds the oldest node.
+    const [view] = inferViews(stateWith({ prev: { ref: 3 }, cur: { ref: 2 } }, nodes([1, null], [2, null], [3, 1]))) as [ListView];
+    expect(texts(view)).toEqual([["3", "1"], ["2"]]);
+  });
+
+  it("keeps a doubly linked node's prev, and finds a list through the object holding its head", () => {
+    const heap = { "9": { t: "obj", cls: "LinkedList", fields: { head: { ref: 1 }, size: 2 } }, ...nodes(["a", 2, { prev: null }], ["b", null, { prev: { ref: 1 } }]) };
+    const [view] = inferViews(stateWith({ ll: { ref: 9 } }, heap)) as [ListView];
+    expect([view.label, texts(view), view.pointers]).toEqual(["ll.head", [['"a"', '"b"']], [{ name: "ll.head", node: "1" }]]);
+    expect([view.nodes["1"]!.prev, view.nodes["2"]!.prev]).toEqual([{ to: null, relinked: false }, { to: "1", relinked: false }]);
+  });
+
+  it("shows a stretch of a long list, where the most pointers are", () => {
+    const long = nodes(...Array.from({ length: 100 }, (_, i): [number, number | null] => [i, i < 99 ? i + 2 : null]));
+    const [view] = inferViews(stateWith({ head: { ref: 1 }, cur: { ref: 61 } }, long)) as [ListView];
+    const [row] = view.rows;
+    expect([row!.skipped, row!.nodes.length, view.nodes[row!.nodes[0]!]!.text, row!.end]).toEqual([55, 30, "55", { kind: "more", count: 15 }]);
+    expect(view.pointers).toEqual([{ name: "cur", node: "61" }]); // head is off the left
+  });
+
+  it("leaves objects with left or right to the tree view, even with a next", () => {
+    const heap = { ...nodes([1, null]), "9": { t: "obj", cls: "Tree", fields: { val: 2, left: null, right: null, next: null } } };
+    const views = inferViews(stateWith({ root: { ref: 9 }, head: { ref: 1 } }, heap));
+    expect(views.map((v) => v.kind)).toEqual(["tree", "list"]);
+    expect(Object.keys((views[1] as ListView).nodes)).toEqual(["1"]);
   });
 
   it("draws nothing for values it doesn't recognise", () => {

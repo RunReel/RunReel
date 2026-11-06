@@ -78,7 +78,7 @@ export function mount(root: HTMLElement, trace: TraceFile, options: MountOptions
       el.classList.toggle("rr-ran", (first.get(line) ?? Infinity) <= current && line !== state.line);
     }
     lineEls[state.line - 1]?.scrollIntoView?.({ block: "nearest" });
-    const views = inferViews(state, prev);
+    const views = inferViews(state, prev, lines);
     if (views.length) scene.draw(composeScene(views));
     else scene.clear("No array, tree or graph at this step. The variables are below.");
     vars.innerHTML = variablesHtml(state, prev, trace, current, current === count - 1);

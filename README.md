@@ -40,7 +40,8 @@ uv run runreel run app.py -- --n 5
 ## What works right now
 
 - Python 3.10 or newer. I work on 3.13, and every change is tested on 3.10 through 3.15.
-- Three kinds of picture: arrays (with index variables like `i`, `lo`, `hi` and `mid` drawn as pointers), binary trees built from objects with `left` and `right`, and graphs stored as a dict of neighbour lists, optionally with weights.
+- Four kinds of picture: arrays (with index variables like `i`, `lo`, `hi` and `mid` drawn as pointers), grids, binary trees built from objects with `left` and `right`, and graphs stored as a dict of neighbour lists, optionally with weights.
+- A grid is a list of lists, or a list of strings you index as `grid[r][c]`. It outlines the cell your code is working on, so on a DP table like `dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])` you see which cells it reads to fill the next one. `examples/lcs.py` shows one filling up.
 - Everything else still shows up in the variables pane, so you can follow any program, just without a drawing.
 - It records the first 5,000 steps, and big collections show their first 200 items.
 - After 5,000 steps the program keeps going unrecorded, until it finishes or has run for a minute (`--timeout` changes that), so an infinite loop won't hang it. Ctrl+C stops it too, and you still get the reel of what ran.
@@ -49,7 +50,7 @@ uv run runreel run app.py -- --n 5
 
 Two directions, roughly in parallel:
 
-- **Learning:** more pictures (grids and DP tables, heaps, stacks and queues, linked lists, hash maps) and a gallery of classic algorithms you can open and play.
+- **Learning:** more pictures (linked lists, heaps, stacks and queues, hash maps) and a gallery of classic algorithms you can open and play.
 - **Checking code:** point it at a real project and get a short list of anything surprising, like a function that changes its input, an exception that gets swallowed, or a file or network call you didn't expect. And `pytest --reel`, which turns a failing test into a reel that opens at the failure.
 
 C++ and JavaScript come after that.

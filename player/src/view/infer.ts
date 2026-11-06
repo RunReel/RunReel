@@ -13,6 +13,9 @@ const CURRENT_NAMES = new Set(["node", "u", "cur", "current", "v", "x"]);
 const NEXT_NAMES = new Set(["neighbour", "neighbor", "nbr", "w", "nxt", "next_node"]);
 const NEXT_FIELDS = ["next", "_next"]; // a linked list node's link fields
 const PREV_FIELDS = ["prev", "_prev"];
+// Names for a link pointing back along a list, or up a tree, as a whole word: prev_node, but not upper.
+const BACK = /^_*(prev|prv|previous|pred|predecessor|back|backward|bwd|before)($|[_\dA-Z])/;
+const UP = /^_*(parent|par|up)($|[_\dA-Z])/;
 
 export interface Cell {
   key: string;
@@ -134,12 +137,12 @@ export function inferViews(state: State, prev?: State, lines: readonly string[] 
     const found = deref(value, heap);
     if (!found) continue;
     const [id, obj] = found;
-    if (isTreeNode(obj)) {
+    if (isTreeNode(obj, heap)) {
       const root = treeRoot(id, heap);
       if (shown.has(`tree:${root}`)) continue;
       shown.add(`tree:${root}`);
       views.push(treeView(root, name, locals, heap));
-    } else if (isListNode(obj) || listField(obj, heap)) {
+    } else if (isListNode(obj, heap) || listField(obj, heap)) {
       // One view holds every chain, so a list split in two, as reversing one does, stays together.
       if (shown.has("list")) continue;
       shown.add("list");
@@ -313,20 +316,113 @@ function usualCell(name: string, lines: readonly string[], cell: (ix: GridIndex)
   return best ? cell(best[1]) : undefined;
 }
 
-function isTreeNode(obj: HeapObject): boolean {
-  return obj.t === "obj" && !!obj.fields && ("left" in obj.fields || "right" in obj.fields);
+/** How a node links to others: a tree's left and right fields, or a list's next and prev. */
+type Links = { kind: "tree"; left?: string; right?: string } | { kind: "list"; next: string; prev?: string };
+
+/**
+ * How obj links to other nodes, if it is one: by the usual field names first, left and right
+ * for a tree and next and prev for a list, so a lone node shows before anything links to it,
+ * and otherwise by how the objects of its class point at each other, whatever the fields are called.
+ */
+function links(obj: HeapObject, heap: Record<string, HeapObject>): Links | undefined {
+  if (obj.t !== "obj") return undefined;
+  const fields = obj.fields ?? {};
+  if ("left" in fields || "right" in fields) return { kind: "tree", left: "left", right: "right" };
+  const next = linkName(obj, NEXT_FIELDS);
+  if (next !== undefined) {
+    const prev = linkName(obj, PREV_FIELDS);
+    return { kind: "list", next, ...(prev !== undefined ? { prev } : {}) };
+  }
+  return classLinks(heap).get(obj.cls);
+}
+
+const CLASS_LINKS = new WeakMap<Record<string, HeapObject>, Map<string, Links>>();
+
+/** How the objects of each class in the heap link to each other, worked out once per heap. */
+function classLinks(heap: Record<string, HeapObject>): Map<string, Links> {
+  let shapes = CLASS_LINKS.get(heap);
+  if (shapes) return shapes;
+  shapes = new Map();
+  const byClass = new Map<string, [string, HeapObject][]>();
+  for (const [id, obj] of Object.entries(heap)) {
+    if (obj.t !== "obj") continue;
+    const same = byClass.get(obj.cls);
+    if (same) same.push([id, obj]);
+    else byClass.set(obj.cls, [[id, obj]]);
+  }
+  for (const [cls, objs] of byClass) {
+    const shape = classShape(cls, objs, heap);
+    if (shape) shapes.set(cls, shape);
+  }
+  CLASS_LINKS.set(heap, shapes);
+  return shapes;
+}
+
+/**
+ * A class's shape, from its link fields: those holding None or an object of the same class in
+ * every object of the class, and such an object in at least one. One link makes a linked list,
+ * unless it's called parent or up, as in a forest, which isn't drawn yet.
+ * Two make a doubly linked list if they point back at each other anywhere, and a binary tree if
+ * they never do, or if one is called parent or up, as a tree with one child so far has. Of three,
+ * one pointing back at both others, as a parent does, is left out. The way each link points comes
+ * from its name if that says (prev, back, l and r), else from the order the fields were set in.
+ */
+function classShape(cls: string, objs: [string, HeapObject][], heap: Record<string, HeapObject>): Links | undefined {
+  const names = [...new Set(objs.flatMap(([, obj]) => Object.keys(obj.fields ?? {})))];
+  const target = (obj: HeapObject, field: string) => deref(obj.fields?.[field], heap);
+  let fields = names.filter((field) => {
+    let linked = false;
+    for (const [, obj] of objs) {
+      const value = obj.fields?.[field];
+      if (value === undefined || value === null) continue;
+      const found = target(obj, field);
+      if (!found || found[1].cls !== cls) return false;
+      if (found[1].t === "obj") linked = true; // a placeholder for an object past the limit says nothing either way
+    }
+    return linked;
+  });
+  const backAndForth = (a: string, b: string) =>
+    objs.some(([id, obj]) => {
+      const to = target(obj, a);
+      return !!to && to[0] !== id && deref(to[1].fields?.[b], heap)?.[0] === id;
+    });
+  if (fields.length === 3) {
+    const up = fields.find((f) => fields.every((g) => g === f || backAndForth(f, g) || backAndForth(g, f)));
+    const rest = fields.filter((f) => f !== up);
+    if (!up || backAndForth(rest[0]!, rest[1]!) || backAndForth(rest[1]!, rest[0]!)) return undefined;
+    fields = rest;
+  }
+  if (fields.length === 1) return UP.test(fields[0]!) ? undefined : { kind: "list", next: fields[0]! }; // parents alone make a forest
+  if (fields.length !== 2) return undefined;
+  const [a, b] = fields as [string, string];
+  const rightward = (f: string) => /^_*r/i.test(f);
+  if (backAndForth(a, b) || backAndForth(b, a)) {
+    const down = UP.test(b) ? a : UP.test(a) ? b : undefined;
+    if (down !== undefined) return rightward(down) ? { kind: "tree", right: down } : { kind: "tree", left: down };
+    const [next, prev] = BACK.test(a) && !BACK.test(b) ? [b, a] : [a, b];
+    return { kind: "list", next, prev };
+  }
+  const [left, right] = rightward(a) && /^_*l/i.test(b) ? [b, a] : [a, b];
+  return { kind: "tree", left, right };
+}
+
+function isTreeNode(obj: HeapObject, heap: Record<string, HeapObject>): boolean {
+  return links(obj, heap)?.kind === "tree";
 }
 
 function child(obj: HeapObject | undefined, side: "left" | "right", heap: Record<string, HeapObject>): string | undefined {
-  const found = deref(obj?.fields?.[side], heap);
-  return found && isTreeNode(found[1]) ? found[0] : undefined;
+  const shape = obj && links(obj, heap);
+  const field = shape?.kind === "tree" ? shape[side] : undefined;
+  if (field === undefined) return undefined;
+  const found = deref(obj!.fields?.[field], heap);
+  return found && isTreeNode(found[1], heap) ? found[0] : undefined;
 }
 
 /** The root above a node: the tree node no other tree node points to, following parents up. */
 function treeRoot(id: string, heap: Record<string, HeapObject>): string {
   const parent = new Map<string, string>();
   for (const [pid, obj] of Object.entries(heap)) {
-    if (!isTreeNode(obj)) continue;
+    if (!isTreeNode(obj, heap)) continue;
     for (const side of ["left", "right"] as const) {
       const c = child(obj, side, heap);
       if (c) parent.set(c, pid);
@@ -346,7 +442,7 @@ function treeView(root: string, name: string, locals: Local[], heap: Record<stri
   const marks = new Map<string, string[]>();
   for (const { name: local, value } of locals) {
     const found = deref(value, heap);
-    if (found && isTreeNode(found[1])) marks.set(found[0], [...(marks.get(found[0]) ?? []), local]);
+    if (found && isTreeNode(found[1], heap)) marks.set(found[0], [...(marks.get(found[0]) ?? []), local]);
   }
   const stack = [root];
   while (stack.length) {
@@ -367,14 +463,15 @@ function nodeLabel(obj: HeapObject, heap: Record<string, HeapObject>): string {
   for (const name of ["key", "val", "value", "data", "item"]) {
     if (name in fields) return formatValue(fields[name], heap, 1);
   }
-  const links = ["left", "right", ...NEXT_FIELDS, ...PREV_FIELDS];
-  const first = Object.entries(fields).find(([k, v]) => !links.includes(k) && isScalar(v, heap));
+  const shape = links(obj, heap);
+  const own = shape?.kind === "tree" ? [shape.left, shape.right] : shape ? [shape.next, shape.prev] : [];
+  const skip = ["left", "right", ...NEXT_FIELDS, ...PREV_FIELDS, ...own];
+  const first = Object.entries(fields).find(([k, v]) => !skip.includes(k) && isScalar(v, heap));
   return first ? formatValue(first[1], heap, 1) : obj.cls;
 }
 
-/** A linked list node: an object with a next field holding None or another object, and no left or right. */
-function isListNode(obj: HeapObject): boolean {
-  return obj.t === "obj" && !isTreeNode(obj) && linkName(obj, NEXT_FIELDS) !== undefined;
+function isListNode(obj: HeapObject, heap: Record<string, HeapObject>): boolean {
+  return links(obj, heap)?.kind === "list";
 }
 
 /** Which of names is obj's link field: the first it has that holds None or a reference. */
@@ -386,22 +483,23 @@ function linkName(obj: HeapObject, names: readonly string[]): string | undefined
   });
 }
 
-/** The node a link field points at: its id, null for None, or undefined if it isn't a list node. */
-function linkTarget(obj: HeapObject, names: readonly string[], heap: Record<string, HeapObject>): string | null | undefined {
-  const name = linkName(obj, names);
-  if (name === undefined) return undefined;
-  const value = obj.fields![name]!;
+/** The node a list node's next or prev points at: its id, null for None, or undefined if it isn't a list node. */
+function linkTarget(obj: HeapObject, which: "next" | "prev", heap: Record<string, HeapObject>): string | null | undefined {
+  const shape = links(obj, heap);
+  const field = shape?.kind === "list" ? shape[which] : undefined;
+  const value = field === undefined ? undefined : obj.fields?.[field];
+  if (value === undefined) return undefined;
   if (value === null) return null;
   const found = deref(value, heap);
-  return found && isListNode(found[1]) ? found[0] : undefined;
+  return found && isListNode(found[1], heap) ? found[0] : undefined;
 }
 
 /** The field of an object, not itself a node, that holds a list node: a LinkedList's head, say. */
 function listField(obj: HeapObject, heap: Record<string, HeapObject>): string | undefined {
-  if (obj.t !== "obj" || isTreeNode(obj)) return undefined;
+  if (obj.t !== "obj" || links(obj, heap)) return undefined;
   return Object.keys(obj.fields ?? {}).find((field) => {
     const found = deref(obj.fields![field], heap);
-    return !!found && isListNode(found[1]);
+    return !!found && isListNode(found[1], heap);
   });
 }
 
@@ -413,7 +511,7 @@ function listField(obj: HeapObject, heap: Record<string, HeapObject>): string | 
 function listView(state: State, prev: State | undefined): ListView {
   const heap = state.heap;
   const nexts = new Map<string, string | null | undefined>();
-  for (const [id, obj] of Object.entries(heap)) if (isListNode(obj)) nexts.set(id, linkTarget(obj, NEXT_FIELDS, heap));
+  for (const [id, obj] of Object.entries(heap)) if (isListNode(obj, heap)) nexts.set(id, linkTarget(obj, "next", heap));
   const pointedAt = new Set([...nexts.values()].filter((to): to is string => typeof to === "string"));
   const placed = new Set<string>();
   const chains: { nodes: string[]; end: string | null | undefined; oldest: number }[] = [];
@@ -470,7 +568,7 @@ function listLabel(state: State): string {
     for (const [name, value] of Object.entries(frame.locals)) {
       const found = deref(value, state.heap);
       if (!found) continue;
-      if (isListNode(found[1])) return name;
+      if (isListNode(found[1], state.heap)) return name;
       const field = listField(found[1], state.heap);
       if (field) return `${name}.${field}`;
     }
@@ -482,15 +580,15 @@ function listNode(id: string, heap: Record<string, HeapObject>, prev: State | un
   const obj = heap[id]!;
   const text = nodeLabel(obj, heap);
   const old = prev?.heap[id];
-  const was = old && isListNode(old) ? old : undefined;
+  const was = old && isListNode(old, prev!.heap) ? old : undefined;
   const node: ListNode = {
     key: id,
     text,
     changed: !!prev && (!was || nodeLabel(was, prev.heap) !== text),
-    relinked: !!was && linkTarget(was, NEXT_FIELDS, prev!.heap) !== linkTarget(obj, NEXT_FIELDS, heap),
+    relinked: !!was && linkTarget(was, "next", prev!.heap) !== linkTarget(obj, "next", heap),
   };
-  const back = linkTarget(obj, PREV_FIELDS, heap);
-  if (back !== undefined) node.prev = { to: back, relinked: !!was && linkTarget(was, PREV_FIELDS, prev!.heap) !== back };
+  const back = linkTarget(obj, "prev", heap);
+  if (back !== undefined) node.prev = { to: back, relinked: !!was && linkTarget(was, "prev", prev!.heap) !== back };
   return node;
 }
 
@@ -500,12 +598,12 @@ function listPointers(locals: Record<string, Value>, heap: Record<string, HeapOb
   for (const [name, value] of Object.entries(locals)) {
     const found = deref(value, heap);
     if (!found) continue;
-    if (isListNode(found[1])) {
+    if (isListNode(found[1], heap)) {
       out.push({ name, node: found[0] });
     } else if (found[1].t === "obj") {
       for (const [field, inner] of Object.entries(found[1].fields ?? {})) {
         const node = deref(inner, heap);
-        if (node && isListNode(node[1])) out.push({ name: `${name}.${field}`, node: node[0] });
+        if (node && isListNode(node[1], heap)) out.push({ name: `${name}.${field}`, node: node[0] });
       }
     }
   }

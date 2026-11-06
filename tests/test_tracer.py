@@ -166,6 +166,26 @@ WAITING: dict[str, tuple[str, str | None, dict[str, Any]]] = {
 }
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_recording_runs_none_of_the_programs_code(tmp_path: Path, backend: Backend) -> None:
+    weird = program(
+        tmp_path,
+        "class Weird(list):\n    def __len__(self):\n        raise RuntimeError('no len')\n\n"
+        "def total():\n    w = Weird([1, 2, 3])\n    s = 0\n    for x in w:\n"
+        "        s += x\n    return s\n",
+    )
+    trace = record(weird, "total()", backend=backend)
+    assert trace["result"] == 6 and "error" not in trace  # it used to fail on RunReel's len()
+    watched = tmp_path / "watched.py"
+    watched.write_text(
+        "seen = []\n\nclass Guarded:\n    def __getattribute__(self, name):\n"
+        "        seen.append(name)\n        return object.__getattribute__(self, name)\n\n"
+        "g = Guarded()\nx = 1\nprint(len(seen))\n"
+    )
+    printed = record(watched, backend=backend).get("stdout", [])
+    assert [text for _, text in printed] == ["0\n"]
+
+
 class _NeverKept(dict[int, Any]):
     def __setitem__(self, key: int, value: Any) -> None:
         pass

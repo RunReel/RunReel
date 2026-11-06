@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 from collections import deque, namedtuple
+from collections.abc import Iterator
 from typing import Any
 
 from hypothesis import given
@@ -353,6 +355,77 @@ def test_checking_in_place_never_misses_a_change(tree: object, data: st.DataObje
         target = data.draw(st.sampled_from(mutable(root)))
         edit(target, data.draw(st.integers(0, 6)), data.draw(st.integers(0, 6)), data.draw(NESTED))
         assert same_as_from_scratch()
+
+
+def test_reading_an_object_runs_none_of_its_own_code() -> None:
+    called: list[str] = []
+
+    class Loud(list[int]):
+        def __len__(self) -> int:
+            called.append("len")
+            raise RuntimeError
+
+        def __iter__(self) -> Iterator[int]:
+            called.append("iter")
+            raise RuntimeError
+
+    class LoudMap(dict[str, int]):
+        def __len__(self) -> int:
+            called.append("len")
+            raise RuntimeError
+
+        def keys(self) -> Any:
+            called.append("keys")
+            raise RuntimeError
+
+        def values(self) -> Any:
+            called.append("values")
+            raise RuntimeError
+
+    class Guarded:
+        def __init__(self) -> None:
+            self.size = 3
+
+        def __getattribute__(self, name: str) -> Any:
+            called.append(name)
+            return object.__getattribute__(self, name)
+
+    class Hidden:
+        def __init__(self) -> None:
+            self.__dict__["size"] = 3
+
+        @property
+        def size(self) -> int:  # what getattr would find instead of the stored 3
+            called.append("size")
+            return 99
+
+    roots: list[Any] = [Loud([1, 2]), LoudMap({"a": 1}), Guarded(), Hidden()]
+    serializer = Serializer()
+    for root in roots:
+        serializer.value(root)
+    first = serializer.heap()
+    roots[0].append(3)
+    roots[1]["b"] = 2  # both changed, so the next step reads them again
+    for root in roots:
+        serializer.value(root)
+    second = serializer.heap()
+    assert called == []
+    assert (first[1]["items"], second[1]["items"]) == ([1, 2], [1, 2, 3])
+    assert second[2]["items"] == [["a", 1], ["b", 2]]
+    assert first[3]["fields"] == first[4]["fields"] == {"size": 3}
+
+
+def test_an_object_without_a_usable_dict_is_shown_printed() -> None:
+    # A subclass of asyncio's C Future reports a __dictoffset__, but has no __dict__ to read.
+    class Pending(asyncio.Future[int]):
+        pass
+
+    loop = asyncio.new_event_loop()
+    try:
+        _, heap = snapshot(Pending(loop=loop))
+    finally:
+        loop.close()
+    assert heap[1] == {"t": "repr", "cls": "Pending", "v": "<Pending pending>"}
 
 
 def test_printed_forms_leave_out_memory_addresses() -> None:

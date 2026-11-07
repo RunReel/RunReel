@@ -203,6 +203,19 @@ describe("shape inference", () => {
     expect(Object.keys((views[1] as ListView).nodes)).toEqual(["1"]);
   });
 
+  it("keeps each view in its place as the code calls into a function and returns", () => {
+    // Inside insert or Node.__init__ the running function's names come first, but the views
+    // stay in the order the outer frame has them, so nothing jumps up or down the page.
+    for (const trace of [bstInsert, reverseList]) {
+      let last: string[] = [];
+      steps(trace).forEach((_, n) => {
+        const keys = viewsAt(trace, n).map((v) => v.key);
+        expect(keys.filter((k) => last.includes(k))).toEqual(last.filter((k) => keys.includes(k)));
+        last = keys;
+      });
+    }
+  });
+
   it("draws nothing for values it doesn't recognise", () => {
     const state: State = { ev: "line", line: 1, stack: [{ fid: 1, fn: "f", line: 1, locals: { s: { ref: 1 } } }], heap: { "1": { t: "repr", cls: "function", v: "<function g>" } } };
     expect(inferViews(state)).toEqual([]);

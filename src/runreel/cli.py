@@ -128,6 +128,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 def run(args: argparse.Namespace) -> int:
     """Record the file, write the reel and print a one-line summary that agents can read."""
     file: Path = args.file
+    out: Path = args.out or file.with_suffix(".reel.html")
+    target = out.absolute()  # fixed now, in case the program changes the working directory
     try:
         stdin = args.stdin.read_text(encoding="utf-8") if args.stdin else ""
         trace = record(
@@ -152,16 +154,15 @@ def run(args: argparse.Namespace) -> int:
     if not trace["steps"] and "stopped" in trace:
         message = f"{file} was {stopped(trace, args.timeout)} before any step was recorded"
         return fail(f"{message}. {CALL_HINT}" if args.call else message)
-    out: Path = args.out or file.with_suffix(".reel.html")
     try:
-        write_reel(trace, out, mark=not args.no_mark)
+        write_reel(trace, target, mark=not args.no_mark)
     except FileNotFoundError as error:
         return fail(str(error))
     except OSError as error:
         return fail(f"can't write {out}: {error.strerror or error}")
     print(summary(trace, out, args.timeout))
     if args.open:
-        webbrowser.open(out.resolve().as_uri())
+        webbrowser.open(target.resolve().as_uri())
     return 0
 
 

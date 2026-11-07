@@ -19,6 +19,7 @@ EXAMPLES = {
     "binary_search": "binary_search([1, 3, 4, 7, 9, 11, 15], 9)",
     "bst_insert": "build([5, 3, 8, 1, 4])",
     "dijkstra": "dijkstra(G, 0)",
+    "lcs": 'lcs("ABCBDAB", "BDCABA")',
 }
 
 

@@ -62,6 +62,9 @@ html, body { margin: 0; height: 100%; background: var(--rr-bg); color: var(--rr-
 /* Scene */
 .rr-box rect { fill: var(--rr-surface); stroke: var(--rr-line); stroke-width: 1.5; }
 .rr-box.rr-changed rect { fill: var(--rr-changed-bg); stroke: var(--rr-orange); stroke-width: 2; }
+.rr-box.rr-read rect { fill: var(--rr-next-bg); stroke: var(--rr-sky); stroke-width: 2; }
+.rr-box.rr-focus rect { fill: none; stroke: var(--rr-blue); stroke-width: 3; }
+.rr-line.rr-dep line { stroke: var(--rr-blue); stroke-width: 2; }
 .rr-box text, .rr-circle text { fill: var(--rr-ink); font: 600 14px var(--rr-mono); }
 .rr-index text { fill: var(--rr-muted); font: 11px var(--rr-mono); }
 .rr-pointer text { fill: var(--rr-blue); font: 600 12px var(--rr-mono); }

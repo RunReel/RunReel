@@ -1,7 +1,7 @@
 /**
  * Shape inference, first version: decide what to draw for one step from its locals and heap.
- * Arrays, binary trees and weighted graphs are recognised; everything else is left to the
- * variables pane. Views carry stable keys (object ids), so the renderers can animate by id.
+ * Arrays, grids, binary trees and weighted graphs are recognised; everything else is left to
+ * the variables pane. Views carry stable keys (object ids), so the renderers can animate by id.
  */
 
 import type { HeapObject, State, Value } from "../core/trace";
@@ -65,15 +65,34 @@ export interface GraphView {
   edges: GraphEdge[];
 }
 
-export type View = ArrayView | TreeView | GraphView;
+export interface GridView {
+  kind: "grid";
+  key: string;
+  label: string;
+  rows: Cell[][]; // the cells shown, whose top-left cell is at (top, left)
+  top: number;
+  left: number;
+  height: number; // the whole grid's size, counting any rows or columns not shown
+  width: number;
+  focus?: { row: number; col: number };
+  deps: { row: number; col: number }[]; // cells the current line reads to work out the focus
+}
+
+export type View = ArrayView | GridView | TreeView | GraphView;
+
+const GRID_CELLS = 2500; // a bigger grid shows a window around its focus, this many rows by columns:
+const GRID_WINDOW = { rows: 40, cols: 60 };
 
 interface Local {
   name: string;
   value: Value;
 }
 
-/** The views for a state, top frame first. prev, the state before it, marks changed cells. */
-export function inferViews(state: State, prev?: State): View[] {
+/**
+ * The views for a state, top frame first. prev, the state before it, marks changed cells, and
+ * lines, the program's source, shows which cell of a grid the code is working on.
+ */
+export function inferViews(state: State, prev?: State, lines: readonly string[] = []): View[] {
   const heap = state.heap;
   const locals = allLocals(state);
   const views: View[] = [];
@@ -92,6 +111,9 @@ export function inferViews(state: State, prev?: State): View[] {
     } else if (isGraph(obj, heap)) {
       shown.add(id);
       views.push(graphView(id, name, obj, locals, heap));
+    } else if (gridCells(obj, heap, name, lines)) {
+      shown.add(id);
+      views.push(gridView(id, name, obj, state, prev, lines, locals));
     } else if (isArray(obj, heap)) {
       shown.add(id);
       views.push(arrayView(id, name, obj, state, prev));
@@ -136,6 +158,121 @@ function arrayView(id: string, name: string, obj: HeapObject, state: State, prev
     }
   }
   return { kind: "array", key: id, label: name, cells, pointers, more: obj.more ?? 0 };
+}
+
+/**
+ * The cells of a grid as text, row by row: a list of equal-length lists of plain values, or of
+ * equal-length strings if the code indexes it as name[r][c] (else a list of words would count).
+ * Rows of tuples don't count: a list of (dist, node) pairs reads better as an array of pairs.
+ */
+function gridCells(obj: HeapObject, heap: Record<string, HeapObject>, name: string, lines: readonly string[]): { cells: string[][]; height: number; width: number } | undefined {
+  if (obj.t !== "seq" || obj.cls === "set" || obj.cls === "frozenset" || !obj.items?.length) return undefined;
+  const strings = obj.items.every((item) => typeof item === "string");
+  if (strings && (obj.items.length < 2 || !lines.some((line) => gridIndexes(name, line).length))) return undefined;
+  const cells: string[][] = [];
+  let width = -1;
+  for (const item of obj.items) {
+    let row: string[];
+    let size: number;
+    if (strings) {
+      row = [...(item as string)];
+      size = row.length;
+    } else {
+      const found = deref(item, heap)?.[1];
+      if (!found || found.t !== "seq" || found.cls !== "list") return undefined;
+      const items = found.items ?? [];
+      if (!items.every((v) => isScalar(v, heap))) return undefined;
+      row = items.map((v) => formatValue(v, heap));
+      size = items.length + (found.more ?? 0);
+    }
+    if (size === 0 || (width !== -1 && size !== width)) return undefined;
+    width = size;
+    cells.push(row);
+  }
+  return { cells, height: obj.items.length + (obj.more ?? 0), width };
+}
+
+interface GridIndex {
+  row: string;
+  rowShift: number;
+  col: string;
+  colShift: number;
+}
+
+/** Every name[a][b] in a line, where a and b are names with an optional + or - a number. */
+function gridIndexes(name: string, line: string): GridIndex[] {
+  const part = String.raw`\[\s*([A-Za-z_]\w*)\s*(?:([+-])\s*(\d+)\s*)?\]`;
+  const found: GridIndex[] = [];
+  for (const m of line.matchAll(new RegExp(String.raw`(?<![\w.])${name}\s*${part}\s*${part}`, "g"))) {
+    const shift = (sign?: string, n?: string) => (sign === "-" ? -1 : 1) * Number(n ?? 0);
+    found.push({ row: m[1]!, rowShift: shift(m[2], m[3]), col: m[4]!, colShift: shift(m[5], m[6]) });
+  }
+  return found;
+}
+
+function gridView(id: string, name: string, obj: HeapObject, state: State, prev: State | undefined, lines: readonly string[], locals: Local[]): GridView {
+  const { cells, height, width } = gridCells(obj, state.heap, name, lines)!;
+  const before = prev?.heap[id] ? gridCells(prev.heap[id]!, prev.heap, name, lines)?.cells : undefined;
+  const { focus, deps } = gridFocus(name, state, lines, locals, cells.length, cells[0]!.length);
+  let top = 0;
+  let left = 0;
+  let rows = cells.length;
+  let cols = cells[0]!.length;
+  if (rows * cols > GRID_CELLS) {
+    rows = Math.min(rows, GRID_WINDOW.rows);
+    cols = Math.min(cols, GRID_WINDOW.cols);
+    const centre = (at: number | undefined, size: number, all: number) => Math.min(Math.max((at ?? 0) - Math.floor(size / 2), 0), all - size);
+    top = centre(focus?.row, rows, cells.length);
+    left = centre(focus?.col, cols, cells[0]!.length);
+  }
+  const shown = cells.slice(top, top + rows).map((row, r) =>
+    row.slice(left, left + cols).map((text, c) => {
+      const old = before?.[top + r]?.[left + c];
+      return { key: `${id}:${top + r}:${left + c}`, text, changed: before !== undefined && old !== text };
+    }),
+  );
+  return { kind: "grid", key: id, label: name, rows: shown, top, left, height, width, ...(focus ? { focus } : {}), deps };
+}
+
+/**
+ * The cell the code is working on, and the cells it reads to work it out: from name[a][b] on
+ * the current line, or else the a and b the program indexes the grid with most often.
+ */
+function gridFocus(name: string, state: State, lines: readonly string[], locals: Local[], rows: number, cols: number): Pick<GridView, "focus" | "deps"> {
+  const number = (local: string) => {
+    const value = locals.find((l) => l.name === local)?.value;
+    return typeof value === "number" && Number.isInteger(value) ? value : undefined;
+  };
+  const cell = (ix: GridIndex) => {
+    const row = number(ix.row);
+    const col = number(ix.col);
+    if (row === undefined || col === undefined) return undefined;
+    const at = { row: row + ix.rowShift, col: col + ix.colShift };
+    return at.row >= 0 && at.row < rows && at.col >= 0 && at.col < cols ? at : undefined;
+  };
+  const here = gridIndexes(name, lines[state.line - 1] ?? "");
+  const plain = here.find((ix) => !ix.rowShift && !ix.colShift);
+  const focus = (plain && cell(plain)) ?? here.map(cell).find((c) => c !== undefined) ?? usualCell(name, lines, cell);
+  if (!focus) return { deps: [] };
+  const deps: { row: number; col: number }[] = [];
+  for (const at of here.map(cell)) {
+    if (at && (at.row !== focus.row || at.col !== focus.col) && !deps.some((d) => d.row === at.row && d.col === at.col)) deps.push(at);
+  }
+  return { focus, deps };
+}
+
+/** The cell named by the plain name[a][b] the program uses most for this grid, if any. */
+function usualCell(name: string, lines: readonly string[], cell: (ix: GridIndex) => { row: number; col: number } | undefined) {
+  const counts = new Map<string, [number, GridIndex]>();
+  for (const line of lines) {
+    for (const ix of gridIndexes(name, line)) {
+      if (ix.rowShift || ix.colShift) continue;
+      const key = `${ix.row},${ix.col}`;
+      counts.set(key, [(counts.get(key)?.[0] ?? 0) + 1, ix]);
+    }
+  }
+  const best = [...counts.values()].sort((a, b) => b[0] - a[0])[0];
+  return best ? cell(best[1]) : undefined;
 }
 
 function isTreeNode(obj: HeapObject): boolean {

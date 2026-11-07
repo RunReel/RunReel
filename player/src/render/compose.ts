@@ -1,6 +1,7 @@
 import type { View } from "../view/infer";
 import { renderArray } from "./array";
 import { renderGraph } from "./graph";
+import { renderGrid } from "./grid";
 import type { Item, Scene } from "./scene";
 import { renderTree } from "./tree";
 
@@ -15,7 +16,8 @@ export function composeScene(views: View[]): Scene {
   for (const view of views) {
     items.push({ key: `title:${view.key}`, type: "label", x: PAD, y: y + 12, text: view.label, cls: "rr-title" });
     y += TITLE + (view.kind === "array" ? 14 : 4);
-    const drawn = view.kind === "array" ? renderArray(view, PAD, y) : view.kind === "tree" ? renderTree(view, PAD, y) : renderGraph(view, PAD, y);
+    const drawn =
+      view.kind === "array" ? renderArray(view, PAD, y) : view.kind === "grid" ? renderGrid(view, PAD, y) : view.kind === "tree" ? renderTree(view, PAD, y) : renderGraph(view, PAD, y);
     items.push(...drawn.items);
     width = Math.max(width, drawn.width + 2 * PAD);
     y += drawn.height + PAD;

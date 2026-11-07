@@ -162,6 +162,40 @@ describe("shape inference", () => {
     expect(view.pointers).toEqual([{ name: "cur", node: "61" }]); // head is off the left
   });
 
+  it("finds lists and trees by how their objects link, whatever the fields are called", () => {
+    const obj = (cls: string, fields: Record<string, unknown>) => ({ t: "obj", cls, fields });
+    const ref = (n: number) => ({ ref: n });
+    const list = { "1": obj("Cell", { val: 1, link: ref(2) }), "2": obj("Cell", { val: 2, link: null }) };
+    expect(texts(inferViews(stateWith({ p: ref(1) }, list))[0] as ListView)).toEqual([["1", "2"]]);
+    // r is set before l, and up points back at the parent: l is still the left, and up isn't a child.
+    const tree = {
+      "1": obj("T", { v: 5, r: ref(3), l: ref(2), up: null }),
+      "2": obj("T", { v: 3, r: null, l: null, up: ref(1) }),
+      "3": obj("T", { v: 8, r: null, l: null, up: ref(1) }),
+    };
+    const [t] = inferViews(stateWith({ root: ref(1) }, tree)) as [TreeView];
+    expect([t.kind, t.nodes[t.nodes["1"]!.left!]!.text, t.nodes[t.nodes["1"]!.right!]!.text]).toEqual(["tree", "3", "8"]);
+    // With one child so far, l and up point back at each other, but up says it's a parent.
+    const young = { "1": obj("T", { v: 5, r: null, l: ref(2), up: null }), "2": obj("T", { v: 3, r: null, l: null, up: ref(1) }) };
+    const [y] = inferViews(stateWith({ root: ref(1) }, young)) as [TreeView];
+    expect([y.kind, y.nodes[y.nodes["1"]!.left!]!.text]).toEqual(["tree", "3"]);
+    // back and fwd point back at each other: a doubly linked list, with back as prev though it was set first.
+    const dll = { "1": obj("D", { item: "a", back: null, fwd: ref(2) }), "2": obj("D", { item: "b", back: ref(1), fwd: null }) };
+    const [d] = inferViews(stateWith({ a: ref(1) }, dll)) as [ListView];
+    expect([texts(d), d.nodes["2"]!.prev, d.nodes["1"]!.prev]).toEqual([[['"a"', '"b"']], { to: "1", relinked: false }, { to: null, relinked: false }]);
+  });
+
+  it("doesn't guess a shape from links it hasn't seen, or from parents alone", () => {
+    const obj = (cls: string, fields: Record<string, unknown>) => ({ t: "obj", cls, fields });
+    const lone = { "1": obj("Cell", { val: 1, link: null }) };
+    expect(inferViews(stateWith({ c: { ref: 1 } }, lone))).toEqual([]); // nothing links yet
+    expect(inferViews(stateWith({ c: { ref: 1 } }, { "1": obj("Cell", { val: 1, next: null }) }))[0]!.kind).toBe("list"); // but next says so
+    const other = { "1": obj("Cell", { val: 1, link: { ref: 2 } }), "2": obj("Tag", { name: "x" }) };
+    expect(inferViews(stateWith({ c: { ref: 1 } }, other))).toEqual([]); // a link to another class
+    const forest = { "1": obj("Set", { size: 2, parent: null }), "2": obj("Set", { size: 1, parent: { ref: 1 } }) };
+    expect(inferViews(stateWith({ s: { ref: 2 } }, forest))).toEqual([]);
+  });
+
   it("leaves objects with left or right to the tree view, even with a next", () => {
     const heap = { ...nodes([1, null]), "9": { t: "obj", cls: "Tree", fields: { val: 2, left: null, right: null, next: null } } };
     const views = inferViews(stateWith({ root: { ref: 9 }, head: { ref: 1 } }, heap));

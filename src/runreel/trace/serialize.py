@@ -8,6 +8,11 @@ identity instead of comparing them item by item.
 heap() runs at every step for every object the program can reach, so most of a recording's
 time goes there. Whether an object changed is checked in place, without copying it, and a step
 where nothing in the heap changed gets back the previous step's heap.
+
+Reading an object never runs the program's own code, so recording can't change what the
+program does: a container whose class redefines how it's read (its __len__, __iter__, keys or
+values) is read through the built-in type's methods, and fields come straight from where they
+are stored, without properties or a custom __getattribute__ running.
 """
 
 from __future__ import annotations
@@ -36,6 +41,8 @@ _INF: Value = {"inf": 1}
 _NEG_INF: Value = {"inf": -1}
 _NAN: Value = {"nan": 1}
 _SEQS = (list, tuple, set, frozenset, deque)
+_CONTAINERS = (*_SEQS, dict)
+_READERS = ("__len__", "__iter__", "keys", "values")  # what reading a container calls
 _OPAQUE = (
     type,
     types.ModuleType,
@@ -76,7 +83,8 @@ class Serializer:
         self._pending: list[object] = []
         self._last: dict[int, HeapObject] = {}  # the heap returned last time
         self._made = 0  # heap objects made so far, rather than reused
-        self._shadowed: dict[type, frozenset[str] | None] = {}  # see _check()
+        self._through: dict[type, type | None] = {}  # see _reader()
+        self._plain: dict[type, bool] = {}  # see _check()
 
     def value(self, x: object) -> Value:
         """The trace value of x. An object is also queued for the next heap()."""
@@ -171,7 +179,7 @@ class Serializer:
         if kind == "repr":
             self._made += 1
             return {"t": "repr", "cls": type(x).__name__, "v": _repr(x)}
-        size, parts = _parts(x, kind, self.max_items)
+        size, parts = _parts(x, kind, self.max_items, self._reader(type(x)))
         sent = self._sent.get(oid)
         if (
             sent is not None
@@ -187,26 +195,36 @@ class Serializer:
         self._made += 1
         half = len(parts) // 2 if kind == "map" else size if kind == "obj" else len(parts)
         first, second, children = parts[:half], parts[half:], self._pending[start:]
-        check = self._check(x, kind, first)
+        check = self._check(x, kind)
         self._sent[oid] = _Sent(type(x), size, parts, obj, children, check, first, second)
         return obj
 
-    def _check(self, x: object, kind: Kind, names: list[object]) -> str:
+    def _check(self, x: object, kind: Kind) -> str:
         """How heap() can tell, in place, that x hasn't changed: "frozen" if it can't change,
         "items", "map" or "dict" to compare what it holds now with what was sent, or "" if
-        only rebuilding its parts can tell, as for slots, a custom __getattribute__ or a
-        property named like one of its fields."""
+        only rebuilding its parts can tell without running the program's code, as for a
+        container that redefines how it's read, slots or a custom __getattribute__."""
         cls = type(x)
         if kind == "seq":
-            return "frozen" if cls in (tuple, frozenset) else "items"
+            return "frozen" if cls in (tuple, frozenset) else "" if self._reader(cls) else "items"
         if kind == "map":
-            return "map"
-        if isinstance(x, tuple):
+            return "" if self._reader(cls) else "map"
+        if issubclass(cls, tuple):
             return "frozen"  # a namedtuple, whose fields are its items
-        if cls not in self._shadowed:
-            self._shadowed[cls] = _shadowed(cls)
-        shadowed = self._shadowed[cls]
-        return "dict" if shadowed is not None and shadowed.isdisjoint(names) else ""
+        if cls not in self._plain:
+            ours = cls.__mro__[:-1]  # everything but object
+            self._plain[cls] = not _slots(cls) and not any(
+                "__getattribute__" in vars(k) for k in ours
+            )
+        return "dict" if self._plain[cls] else ""
+
+    def _reader(self, cls: type) -> type | None:
+        """The built-in class to read a container of cls through, if cls redefines in Python
+        how it's read, or None to read it as it is. Kept per run, not for good, so the
+        program's classes don't outlive it."""
+        if cls not in self._through:
+            self._through[cls] = _through(cls)
+        return self._through[cls]
 
     def _build(self, x: object, kind: Kind, size: int, parts: list[object]) -> HeapObject:
         cls = type(x).__name__
@@ -230,48 +248,82 @@ class Serializer:
 
 
 def _kind(x: object) -> Kind:
-    if isinstance(x, dict):
+    """What x becomes in the heap, decided from its class, never by asking x itself."""
+    cls = type(x)
+    if issubclass(cls, dict):
         return "map"
-    if isinstance(x, tuple) and hasattr(type(x), "_fields"):
+    if issubclass(cls, tuple) and hasattr(cls, "_fields"):
         return "obj"  # a namedtuple reads better as named fields
-    if isinstance(x, _SEQS):
+    if issubclass(cls, _SEQS):
         return "seq"
-    if isinstance(x, _OPAQUE):
+    if issubclass(cls, _OPAQUE):
         return "repr"
-    if hasattr(x, "__dict__") or _slots(type(x)):
+    # A __dict__ descriptor is what makes x.__dict__ work. __dictoffset__ can be set when it
+    # doesn't, as for asyncio's futures, which are clearer shown printed.
+    if any("__dict__" in vars(klass) for klass in cls.__mro__) or _slots(cls):
         return "obj"
     return "repr"
 
 
-def _parts(x: Any, kind: Kind, limit: int) -> tuple[int, list[object]]:
-    """The size of x and the live values that make up its shown part, without calling user code."""
-    if kind == "map":
-        return len(x), [*islice(x.keys(), limit), *islice(x.values(), limit)]
+def _parts(x: Any, kind: Kind, limit: int, through: type | None) -> tuple[int, list[object]]:
+    """The size of x and the live values that make up its shown part. through, if given, is the
+    built-in class to read a container through, so its own redefinitions don't run."""
     if kind == "obj":
-        names = _field_names(x)
-        return len(names), [*names, *(getattr(x, name) for name in names)]
-    return len(x), list(islice(x, limit))
+        names, values = _fields(x)
+        return len(names), [*names, *values]
+    if kind == "map":
+        if through is None:
+            return len(x), [*islice(x.keys(), limit), *islice(x.values(), limit)]
+        return dict.__len__(x), [*islice(dict.keys(x), limit), *islice(dict.values(x), limit)]
+    if through is None:
+        return len(x), list(islice(x, limit))
+    base: Any = through  # list, tuple, set, frozenset or deque
+    return base.__len__(x), list(islice(base.__iter__(x), limit))
 
 
-def _field_names(x: Any) -> list[str]:
-    if isinstance(x, tuple):
-        return list(getattr(type(x), "_fields"))  # noqa: B009  # a namedtuple
-    names = list(getattr(x, "__dict__", {}))
-    names += [name for name in _slots(type(x)) if name not in names and hasattr(x, name)]
-    return names
+def _fields(x: Any) -> tuple[list[str], list[object]]:
+    """An object's field names and values, read from where they're stored: a namedtuple's
+    items, then the instance's __dict__ and its slots."""
+    cls = type(x)
+    if issubclass(cls, tuple):  # a namedtuple
+        names = list(getattr(cls, "_fields"))  # noqa: B009
+        return names, [tuple.__getitem__(x, i) for i in range(len(names))]
+    try:
+        stored: dict[str, object] = object.__getattribute__(x, "__dict__")
+    except AttributeError:
+        stored = {}
+    names, values = list(stored), list(stored.values())
+    for name in _slots(cls):
+        slot = _slot(cls, name)
+        if name in stored or slot is None:
+            continue
+        try:
+            values.append(slot.__get__(x, cls))
+        except AttributeError:
+            continue  # not set
+        names.append(name)
+    return names, values
 
 
-def _shadowed(cls: type) -> frozenset[str] | None:
-    """The names that getattr() finds on cls before an instance's __dict__ (its data
-    descriptors), or None if its instances can't be read through __dict__ at all."""
-    if _slots(cls) or any("__getattribute__" in vars(klass) for klass in cls.__mro__[:-1]):
-        return None
-    return frozenset(
-        name
-        for klass in cls.__mro__
-        for name, attr in vars(klass).items()
-        if hasattr(type(attr), "__set__") or hasattr(type(attr), "__delete__")
-    )
+def _through(cls: type) -> type | None:
+    """The built-in container class to read cls through if a Python class in its hierarchy
+    redefines how it's read; None if its reading is all built in."""
+    for klass in cls.__mro__:
+        if klass in _CONTAINERS:
+            return None
+        defined = vars(klass)
+        if any(isinstance(defined.get(name), types.FunctionType) for name in _READERS):
+            return next(base for base in cls.__mro__ if base in _CONTAINERS)
+    return None
+
+
+def _slot(cls: type, name: str) -> types.MemberDescriptorType | None:
+    """The descriptor that stores slot name, from the class that declared it."""
+    for klass in cls.__mro__:
+        found = vars(klass).get(name)
+        if isinstance(found, types.MemberDescriptorType):
+            return found
+    return None
 
 
 def _slots(cls: type) -> list[str]:

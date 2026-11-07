@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import threading
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
@@ -164,6 +166,49 @@ WAITING: dict[str, tuple[str, str | None, dict[str, Any]]] = {
         {"lines": [2]},  # g returns unrecorded, then f sets a with no step of its own
     ),
 }
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_recording_runs_none_of_the_programs_code(tmp_path: Path, backend: Backend) -> None:
+    weird = program(
+        tmp_path,
+        "class Weird(list):\n    def __len__(self):\n        raise RuntimeError('no len')\n\n"
+        "def total():\n    w = Weird([1, 2, 3])\n    s = 0\n    for x in w:\n"
+        "        s += x\n    return s\n",
+    )
+    trace = record(weird, "total()", backend=backend)
+    assert trace["result"] == 6 and "error" not in trace  # it used to fail on RunReel's len()
+    watched = tmp_path / "watched.py"
+    watched.write_text(
+        "seen = []\n\nclass Guarded:\n    def __getattribute__(self, name):\n"
+        "        seen.append(name)\n        return object.__getattribute__(self, name)\n\n"
+        "g = Guarded()\nx = 1\nprint(len(seen))\n"
+    )
+    printed = record(watched, backend=backend).get("stdout", [])
+    assert [text for _, text in printed] == ["0\n"]
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_what_the_program_changes_in_the_interpreter_is_put_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: Backend
+) -> None:
+    (tmp_path / "elsewhere").mkdir()
+    monkeypatch.chdir(tmp_path)
+    path = program(
+        tmp_path,
+        "import os, sys, threading\n\ndef mine(*args):\n    return None\n\n"
+        "def f():\n    sys.settrace(mine)\n    sys.setprofile(mine)\n"
+        "    threading.settrace(mine)\n    threading.setprofile(mine)\n"
+        "    os.chdir('elsewhere')\n    return 1\n",
+    )
+
+    def interpreter() -> tuple[object, ...]:
+        hooks = sys.gettrace(), sys.getprofile(), threading.gettrace(), threading.getprofile()
+        return (*hooks, os.getcwd())
+
+    before = interpreter()
+    assert record(path, "f()", backend=backend)["result"] == 1
+    assert interpreter() == before
 
 
 class _NeverKept(dict[int, Any]):

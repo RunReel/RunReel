@@ -1,7 +1,8 @@
 /**
  * Shape inference, first version: decide what to draw for one step from its locals and heap.
- * Arrays, grids, binary trees and weighted graphs are recognised; everything else is left to
- * the variables pane. Views carry stable keys (object ids), so the renderers can animate by id.
+ * Arrays, grids, binary trees, linked lists and weighted graphs are recognised; everything else
+ * is left to the variables pane. Views carry stable keys (object ids), so the renderers can
+ * animate by id.
  */
 
 import type { HeapObject, State, Value } from "../core/trace";
@@ -10,6 +11,8 @@ import { deref, formatValue, isScalar } from "./format";
 const POINTER_NAMES = new Set(["i", "j", "k", "l", "r", "lo", "hi", "mid", "left", "right", "low", "high", "start", "end"]);
 const CURRENT_NAMES = new Set(["node", "u", "cur", "current", "v", "x"]);
 const NEXT_NAMES = new Set(["neighbour", "neighbor", "nbr", "w", "nxt", "next_node"]);
+const NEXT_FIELDS = ["next", "_next"]; // a linked list node's link fields
+const PREV_FIELDS = ["prev", "_prev"];
 
 export interface Cell {
   key: string;
@@ -78,10 +81,40 @@ export interface GridView {
   deps: { row: number; col: number }[]; // cells the current line reads to work out the focus
 }
 
-export type View = ArrayView | GridView | TreeView | GraphView;
+export interface ListNode {
+  key: string;
+  text: string;
+  changed: boolean; // new since the step before, or holding a new value
+  relinked: boolean; // its next points somewhere else than it did the step before
+  prev?: { to: string | null; relinked: boolean }; // a doubly linked node's prev; null for None
+}
+
+/** Where a row's last node points: at a node drawn elsewhere, at None, or on to nodes not shown. */
+export type ListEnd = { kind: "node"; to: string } | { kind: "none" } | { kind: "more"; count: number };
+
+export interface ListRow {
+  nodes: string[]; // a chain, each node's next the one after it
+  skipped: number; // nodes of the chain before the first one shown
+  end: ListEnd;
+}
+
+export interface ListView {
+  kind: "list";
+  key: string;
+  label: string;
+  rows: ListRow[];
+  more: number; // chains not drawn
+  nodes: Record<string, ListNode>;
+  pointers: { name: string; node: string }[];
+}
+
+export type View = ArrayView | GridView | TreeView | ListView | GraphView;
 
 const GRID_CELLS = 2500; // a bigger grid shows a window around its focus, this many rows by columns:
 const GRID_WINDOW = { rows: 40, cols: 60 };
+const LIST_NODES = 30; // a longer chain shows this many nodes, from a few before a pointer:
+const LIST_LEAD = 5;
+const LIST_ROWS = 10; // chains drawn at most
 
 interface Local {
   name: string;
@@ -106,6 +139,11 @@ export function inferViews(state: State, prev?: State, lines: readonly string[] 
       if (shown.has(`tree:${root}`)) continue;
       shown.add(`tree:${root}`);
       views.push(treeView(root, name, locals, heap));
+    } else if (isListNode(obj) || listField(obj, heap)) {
+      // One view holds every chain, so a list split in two, as reversing one does, stays together.
+      if (shown.has("list")) continue;
+      shown.add("list");
+      views.push(listView(state, prev));
     } else if (shown.has(id)) {
       continue;
     } else if (isGraph(obj, heap)) {
@@ -329,8 +367,149 @@ function nodeLabel(obj: HeapObject, heap: Record<string, HeapObject>): string {
   for (const name of ["key", "val", "value", "data", "item"]) {
     if (name in fields) return formatValue(fields[name], heap, 1);
   }
-  const first = Object.entries(fields).find(([k, v]) => k !== "left" && k !== "right" && isScalar(v, heap));
+  const links = ["left", "right", ...NEXT_FIELDS, ...PREV_FIELDS];
+  const first = Object.entries(fields).find(([k, v]) => !links.includes(k) && isScalar(v, heap));
   return first ? formatValue(first[1], heap, 1) : obj.cls;
+}
+
+/** A linked list node: an object with a next field holding None or another object, and no left or right. */
+function isListNode(obj: HeapObject): boolean {
+  return obj.t === "obj" && !isTreeNode(obj) && linkName(obj, NEXT_FIELDS) !== undefined;
+}
+
+/** Which of names is obj's link field: the first it has that holds None or a reference. */
+function linkName(obj: HeapObject, names: readonly string[]): string | undefined {
+  const fields = obj.fields ?? {};
+  return names.find((name) => {
+    const value = fields[name];
+    return value === null || (typeof value === "object" && "ref" in value);
+  });
+}
+
+/** The node a link field points at: its id, null for None, or undefined if it isn't a list node. */
+function linkTarget(obj: HeapObject, names: readonly string[], heap: Record<string, HeapObject>): string | null | undefined {
+  const name = linkName(obj, names);
+  if (name === undefined) return undefined;
+  const value = obj.fields![name]!;
+  if (value === null) return null;
+  const found = deref(value, heap);
+  return found && isListNode(found[1]) ? found[0] : undefined;
+}
+
+/** The field of an object, not itself a node, that holds a list node: a LinkedList's head, say. */
+function listField(obj: HeapObject, heap: Record<string, HeapObject>): string | undefined {
+  if (obj.t !== "obj" || isTreeNode(obj)) return undefined;
+  return Object.keys(obj.fields ?? {}).find((field) => {
+    const found = deref(obj.fields![field], heap);
+    return !!found && isListNode(found[1]);
+  });
+}
+
+/**
+ * Every list node in the heap, each chain on a row of its own in next order: the chains start at
+ * the nodes nothing points at, oldest first, then go round any loops left with no way in. The
+ * rows come in order of their oldest node, which keeps them in place as nodes move between them.
+ */
+function listView(state: State, prev: State | undefined): ListView {
+  const heap = state.heap;
+  const nexts = new Map<string, string | null | undefined>();
+  for (const [id, obj] of Object.entries(heap)) if (isListNode(obj)) nexts.set(id, linkTarget(obj, NEXT_FIELDS, heap));
+  const pointedAt = new Set([...nexts.values()].filter((to): to is string => typeof to === "string"));
+  const placed = new Set<string>();
+  const chains: { nodes: string[]; end: string | null | undefined; oldest: number }[] = [];
+  const walk = (start: string) => {
+    const nodes: string[] = [];
+    let at: string | null | undefined = start;
+    while (typeof at === "string" && !placed.has(at)) {
+      placed.add(at);
+      nodes.push(at);
+      at = nexts.get(at);
+    }
+    chains.push({ nodes, end: at, oldest: Math.min(...nodes.map(Number)) });
+  };
+  for (const id of nexts.keys()) if (!pointedAt.has(id)) walk(id);
+  for (const id of nexts.keys()) if (!placed.has(id)) walk(id);
+  chains.sort((a, b) => a.oldest - b.oldest);
+
+  const top = state.stack[state.stack.length - 1];
+  const pointers = listPointers(top?.locals ?? {}, heap);
+  const marked = pointers.map((p) => p.node);
+  const nodes: Record<string, ListNode> = {};
+  const rows = chains.slice(0, LIST_ROWS).map((chain): ListRow => {
+    const start = windowStart(chain.nodes, marked);
+    const shown = chain.nodes.slice(start, start + LIST_NODES);
+    for (const id of shown) nodes[id] = listNode(id, heap, prev);
+    const after = chain.nodes.length - start - shown.length;
+    const end: ListEnd =
+      after > 0 ? { kind: "more", count: after } : chain.end === null ? { kind: "none" } : chain.end === undefined ? { kind: "more", count: 0 } : { kind: "node", to: chain.end };
+    return { nodes: shown, skipped: start, end };
+  });
+  return { kind: "list", key: "list", label: listLabel(state), rows, more: chains.length - rows.length, nodes, pointers: pointers.filter((p) => nodes[p.node]) };
+}
+
+/**
+ * Where to start showing a chain too long to show whole: the stretch with the most pointers in
+ * it, and of those the furthest along, since the code usually walks a pointer forwards.
+ */
+function windowStart(chain: string[], marked: string[]): number {
+  if (chain.length <= LIST_NODES) return 0;
+  const at = marked.map((id) => chain.indexOf(id)).filter((i) => i >= 0);
+  let best = 0;
+  let most = -1;
+  for (const start of [0, ...at.map((i) => Math.min(Math.max(i - LIST_LEAD, 0), chain.length - LIST_NODES))]) {
+    const count = at.filter((i) => i >= start && i < start + LIST_NODES).length;
+    if (count > most || (count === most && start > best)) [best, most] = [start, count];
+  }
+  return best;
+}
+
+/** The first name for a list node in the outermost frame that has one, so the title holds still
+ * while the code steps into a node's constructor or a helper. */
+function listLabel(state: State): string {
+  for (const frame of state.stack) {
+    for (const [name, value] of Object.entries(frame.locals)) {
+      const found = deref(value, state.heap);
+      if (!found) continue;
+      if (isListNode(found[1])) return name;
+      const field = listField(found[1], state.heap);
+      if (field) return `${name}.${field}`;
+    }
+  }
+  return "list";
+}
+
+function listNode(id: string, heap: Record<string, HeapObject>, prev: State | undefined): ListNode {
+  const obj = heap[id]!;
+  const text = nodeLabel(obj, heap);
+  const old = prev?.heap[id];
+  const was = old && isListNode(old) ? old : undefined;
+  const node: ListNode = {
+    key: id,
+    text,
+    changed: !!prev && (!was || nodeLabel(was, prev.heap) !== text),
+    relinked: !!was && linkTarget(was, NEXT_FIELDS, prev!.heap) !== linkTarget(obj, NEXT_FIELDS, heap),
+  };
+  const back = linkTarget(obj, PREV_FIELDS, heap);
+  if (back !== undefined) node.prev = { to: back, relinked: !!was && linkTarget(was, PREV_FIELDS, prev!.heap) !== back };
+  return node;
+}
+
+/** The running function's locals that point at a list node, and fields of its objects that do, as self.head. */
+function listPointers(locals: Record<string, Value>, heap: Record<string, HeapObject>): { name: string; node: string }[] {
+  const out: { name: string; node: string }[] = [];
+  for (const [name, value] of Object.entries(locals)) {
+    const found = deref(value, heap);
+    if (!found) continue;
+    if (isListNode(found[1])) {
+      out.push({ name, node: found[0] });
+    } else if (found[1].t === "obj") {
+      for (const [field, inner] of Object.entries(found[1].fields ?? {})) {
+        const node = deref(inner, heap);
+        if (node && isListNode(node[1])) out.push({ name: `${name}.${field}`, node: node[0] });
+      }
+    }
+  }
+  return out;
 }
 
 /** A dict mapping each node to a list of neighbours or (neighbour, weight) pairs. */

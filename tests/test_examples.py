@@ -20,6 +20,7 @@ EXAMPLES = {
     "bst_insert": "build([5, 3, 8, 1, 4])",
     "dijkstra": "dijkstra(G, 0)",
     "lcs": 'lcs("ABCBDAB", "BDCABA")',
+    "reverse_list": "reverse(build([1, 2, 3, 4, 5]))",
 }
 
 

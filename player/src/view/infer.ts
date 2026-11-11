@@ -125,8 +125,10 @@ interface Local {
 }
 
 /**
- * The views for a state, top frame first. prev, the state before it, marks changed cells, and
- * lines, the program's source, shows which cell of a grid the code is working on.
+ * The views for a state. prev, the state before it, marks changed cells, and lines, the
+ * program's source, shows which cell of a grid the code is working on. Names come from the
+ * running function, but the views are in the order of the outermost frame that has them, so
+ * they hold their places as the code calls into a function and returns.
  */
 export function inferViews(state: State, prev?: State, lines: readonly string[] = []): View[] {
   const heap = state.heap;
@@ -160,7 +162,23 @@ export function inferViews(state: State, prev?: State, lines: readonly string[] 
       views.push(arrayView(id, name, obj, state, prev));
     }
   }
-  return views;
+  const place = new Map<string, number>();
+  for (const frame of state.stack) {
+    for (const value of Object.values(frame.locals)) {
+      const key = viewKey(value, heap);
+      if (key !== undefined && !place.has(key)) place.set(key, place.size);
+    }
+  }
+  return views.sort((a, b) => (place.get(a.key) ?? 0) - (place.get(b.key) ?? 0));
+}
+
+/** The key of the view a variable's value would be drawn in, if any. */
+function viewKey(value: Value, heap: Record<string, HeapObject>): string | undefined {
+  const found = deref(value, heap);
+  if (!found) return undefined;
+  if (isTreeNode(found[1], heap)) return `tree:${treeRoot(found[0], heap)}`;
+  if (isListNode(found[1], heap) || listField(found[1], heap)) return "list";
+  return found[0];
 }
 
 /** Locals of every frame, innermost first, so the running function's names win. */

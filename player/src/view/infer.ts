@@ -159,7 +159,7 @@ export function inferViews(state: State, prev?: State, lines: readonly string[] 
       views.push(gridView(id, name, obj, state, prev, lines, locals));
     } else if (isArray(obj, heap)) {
       shown.add(id);
-      views.push(arrayView(id, name, obj, state, prev));
+      views.push(arrayView(id, name, obj, state, prev, lines));
     }
   }
   const place = new Map<string, number>();
@@ -200,7 +200,7 @@ function isSmallTuple(value: unknown, heap: Record<string, HeapObject>): boolean
   return !!found && found[1].t === "seq" && found[1].cls === "tuple" && (found[1].items ?? []).every((v) => isScalar(v, heap));
 }
 
-function arrayView(id: string, name: string, obj: HeapObject, state: State, prev?: State): ArrayView {
+function arrayView(id: string, name: string, obj: HeapObject, state: State, prev: State | undefined, lines: readonly string[]): ArrayView {
   const items = obj.items ?? [];
   const before = prev?.heap[id];
   const cells = items.map((item, i) => {
@@ -212,11 +212,59 @@ function arrayView(id: string, name: string, obj: HeapObject, state: State, prev
   const pointers: { name: string; index: number }[] = [];
   const top = state.stack[state.stack.length - 1];
   for (const [local, value] of Object.entries(top?.locals ?? {})) {
-    if (POINTER_NAMES.has(local) && typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= items.length) {
+    if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= items.length && points(local, name, lines)) {
       pointers.push({ name: local, index: value });
     }
   }
   return { kind: "array", key: id, label: name, cells, pointers, more: obj.more ?? 0 };
+}
+
+/**
+ * Whether the number local is drawn as a pointer under the array name: if the code indexes the
+ * array with it anywhere, as in name[local], name[local + 1] or name[lo:hi]; or if it's one of
+ * the usual names, lo or hi say, that indexes nothing itself, and the code indexes this array.
+ * So a list the code only appends to gets no stray i. Without the source, the usual names count.
+ */
+function points(local: string, name: string, lines: readonly string[]): boolean {
+  if (!lines.length) return POINTER_NAMES.has(local);
+  const subs = subscripts(lines);
+  const own = subs.names.get(name);
+  return !!own && (own.has(local) || (POINTER_NAMES.has(local) && !subs.all.has(local)));
+}
+
+const SUBSCRIPTS = new WeakMap<readonly string[], { names: Map<string, Set<string>>; all: Set<string> }>();
+
+/**
+ * For each name the source subscripts, the names inside its brackets: i in a[i + 1], lo and hi
+ * in a[lo:hi], i and j in a[min(i, j)], but not i in a[b[i]], which is b's, nor calls such as
+ * len or attributes. all is every name used in any subscript.
+ */
+function subscripts(lines: readonly string[]): { names: Map<string, Set<string>>; all: Set<string> } {
+  const cached = SUBSCRIPTS.get(lines);
+  if (cached) return cached;
+  const names = new Map<string, Set<string>>();
+  const all = new Set<string>();
+  for (const line of lines) {
+    for (const m of line.matchAll(/(?<![\w.])([A-Za-z_]\w*)\s*\[/g)) {
+      let inner = "";
+      let depth = 0;
+      for (const ch of line.slice(m.index! + m[0].length)) {
+        if (ch === "]" && depth === 0) break;
+        if (ch === "[") depth++;
+        if (ch === "]") depth--;
+        inner += depth === 0 && ch !== "]" ? ch : " ";
+      }
+      const used = names.get(m[1]!) ?? new Set<string>();
+      for (const id of inner.matchAll(/(?<![\w.])([A-Za-z_]\w*)\b(?!\s*\()/g)) {
+        used.add(id[1]!);
+        all.add(id[1]!);
+      }
+      names.set(m[1]!, used);
+    }
+  }
+  const found = { names, all };
+  SUBSCRIPTS.set(lines, found);
+  return found;
 }
 
 /**

@@ -35,6 +35,16 @@ describe("shape inference", () => {
     ]);
   });
 
+  it("puts a pointer under the arrays the code indexes with it, whatever it's called", () => {
+    const list = (...items: number[]) => ({ t: "seq", cls: "list", items });
+    const heap = { "1": list(3, 1, 2), "2": list(6), "3": list(4, 5, 6) };
+    const state = stateWith({ a: { ref: 1 }, result: { ref: 2 }, b: { ref: 3 }, i: 1, j: 2, p: 0, lo: 0 }, heap);
+    const lines = ["for i in range(len(a)):", "    result.append(a[i] * 2)", "    if b[j] > a[p]:", "        y = a[b[j]]  # j indexes b here, not a"];
+    const views = inferViews(state, undefined, lines) as ArrayView[];
+    // lo indexes nothing, so it goes under every array the code indexes; result is only appended to.
+    expect(Object.fromEntries(views.map((v) => [v.label, v.pointers.map((p) => p.name)]))).toEqual({ a: ["i", "p", "lo"], result: [], b: ["j", "lo"] });
+  });
+
   it("marks the cells that changed since the step before", () => {
     const trace = {
       steps: [

@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import sys
 from collections import deque, namedtuple
 from collections.abc import Iterator
 from typing import Any
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -46,6 +48,24 @@ def test_floats_a_json_reader_would_print_differently_keep_their_text() -> None:
         0.0001,
         {"float": "1.5e+16"},
         123456789012345.6,
+    ]
+
+
+def test_an_int_too_long_to_print_is_described_by_its_digits() -> None:
+    if not hasattr(sys, "set_int_max_str_digits"):
+        pytest.skip("this Python prints ints of any length")
+    values, heap = snapshot(10**5000, -(10**5000 - 1))
+    assert [heap[v["ref"]]["v"] for v in values] == [  # type: ignore[index]
+        "<int with 5,001 digits>",
+        "<int with 5,000 digits>",
+    ]
+
+
+def test_only_an_address_that_ends_a_printed_form_is_dropped() -> None:
+    values, heap = snapshot(b"jump at 0x1f", object())
+    assert [heap[v["ref"]]["v"] for v in values] == [  # type: ignore[index]
+        "b'jump at 0x1f'",
+        "<object object>",
     ]
 
 

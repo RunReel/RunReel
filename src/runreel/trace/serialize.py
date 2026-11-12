@@ -34,8 +34,15 @@ MAX_STR = 1000  # characters kept of a string
 MAX_REPR = 200  # characters kept of an object's printed form
 SAFE_INT = 2**53 - 1  # larger integers lose precision in JavaScript, so they are tagged
 # Memory addresses in printed forms, as in "<function f at 0x7f3a2c1b>". They change on every
-# run, so keeping them would make two recordings of the same program differ.
-_ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")
+# run, so keeping them would make two recordings of the same program differ. Only an address
+# that ends a <...> form counts, so text such as b"jump at 0x1f" is left alone.
+_ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+(?=>)")
+
+
+def without_addresses(text: str) -> str:
+    """text with the memory addresses taken out of the printed forms in it."""
+    return _ADDRESS.sub("", text)
+
 
 _INF: Value = {"inf": 1}
 _NEG_INF: Value = {"inf": -1}
@@ -93,7 +100,12 @@ class Serializer:
             return cast(Value, x)
         if t is int:
             n = cast(int, x)
-            return n if -SAFE_INT <= n <= SAFE_INT else {"bigint": str(n)}
+            if -SAFE_INT <= n <= SAFE_INT:
+                return n
+            try:
+                return {"bigint": str(n)}
+            except ValueError:  # too long for Python to print: see sys.set_int_max_str_digits
+                return self._ref(x)
         if t is float:
             f = cast(float, x)
             if not math.isfinite(f):
@@ -329,6 +341,17 @@ def _slot(cls: type, name: str) -> types.MemberDescriptorType | None:
     return None
 
 
+def _digits(n: int) -> str:
+    """An int too long to print, described by its number of digits."""
+    bits = abs(n).bit_length()
+    digits = int(bits * math.log10(2)) + 1
+    if bits > 3_000_000:  # counting exactly would take a while
+        return f"<int with about {digits:,} digits>"
+    if 10 ** (digits - 1) > abs(n):
+        digits -= 1
+    return f"<int with {digits:,} digits>"
+
+
 def _slots(cls: type) -> list[str]:
     names: list[str] = []
     for klass in cls.__mro__:
@@ -341,6 +364,6 @@ def _repr(x: object) -> str:
     try:
         text = repr(x)
     except Exception:
-        text = f"<{type(x).__name__} object>"
-    text = _ADDRESS.sub("", text)
+        text = _digits(x) if type(x) is int else f"<{type(x).__name__} object>"
+    text = without_addresses(text)
     return text if len(text) <= MAX_REPR else text[:MAX_REPR] + "…"

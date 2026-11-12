@@ -24,7 +24,7 @@ from runreel.trace.codec import encode
 from runreel.trace.deadline import Deadline, TimeUp
 from runreel.trace.events import Backend, open_source
 from runreel.trace.model import Event, Frame, State, Trace, Value
-from runreel.trace.serialize import Serializer
+from runreel.trace.serialize import Serializer, without_addresses
 
 MAX_STEPS = 5000
 TIMEOUT = 60.0  # seconds
@@ -337,6 +337,7 @@ def _describe(error: BaseException) -> str:
         text = str(error)
     except Exception:
         text = ""  # its __str__ failed, so the type's name has to do
+    text = without_addresses(text)
     return f"{type(error).__name__}: {text}" if text else type(error).__name__
 
 

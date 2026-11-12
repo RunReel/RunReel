@@ -153,7 +153,7 @@ export function inferViews(state: State, prev?: State, lines: readonly string[] 
       continue;
     } else if (isGraph(obj, heap)) {
       shown.add(id);
-      views.push(graphView(id, name, obj, locals, heap));
+      views.push(graphView(id, name, obj, locals, heap, lines, state.line));
     } else if (gridCells(obj, heap, name, lines)) {
       shown.add(id);
       views.push(gridView(id, name, obj, state, prev, lines, locals));
@@ -676,14 +676,44 @@ function listPointers(locals: Record<string, Value>, heap: Record<string, HeapOb
   return out;
 }
 
-/** A dict mapping each node to a list of neighbours or (neighbour, weight) pairs. */
+type Adjacency = [node: Value, edges: [to: Value, weight: Value | undefined][]][];
+
+/**
+ * A graph's nodes and edges, if obj is one: a dict mapping each node to a list (or set) of
+ * neighbours or (neighbour, weight) pairs, or to a dict from neighbour to weight. Its lists have
+ * to name its own keys somewhere, so a dict like {"fruit": ["apple", "pear"]} isn't a graph.
+ */
+function adjacency(obj: HeapObject, heap: Record<string, HeapObject>): Adjacency | undefined {
+  if (obj.t !== "map" || !obj.items?.length) return undefined;
+  const graph: Adjacency = [];
+  for (const pair of obj.items) {
+    const [node, value] = pair as [Value, Value];
+    const inner = deref(value, heap)?.[1];
+    if (!isScalar(node, heap) || !inner) return undefined;
+    const edges: [Value, Value | undefined][] = [];
+    if (inner.t === "seq") {
+      for (const entry of inner.items ?? []) {
+        if (isScalar(entry, heap)) edges.push([entry as Value, undefined]);
+        else if (isEdgeTuple(entry, heap)) edges.push(deref(entry, heap)![1].items as [Value, Value]);
+        else return undefined;
+      }
+    } else if (inner.t === "map") {
+      for (const entry of inner.items ?? []) {
+        const [to, weight] = entry as [Value, Value];
+        if (!isScalar(to, heap) || !isScalar(weight, heap)) return undefined;
+        edges.push([to, weight]);
+      }
+    } else {
+      return undefined;
+    }
+    graph.push([node, edges]);
+  }
+  const keys = new Set(graph.map(([node]) => formatValue(node, heap, 1)));
+  return graph.some(([, edges]) => edges.some(([to]) => keys.has(formatValue(to, heap, 1)))) ? graph : undefined;
+}
+
 function isGraph(obj: HeapObject, heap: Record<string, HeapObject>): boolean {
-  if (obj.t !== "map" || !obj.items?.length) return false;
-  return obj.items.every((pair) => {
-    const [key, value] = pair as [Value, Value];
-    const list = deref(value, heap);
-    return isScalar(key, heap) && !!list && list[1].t === "seq" && (list[1].items ?? []).every((e) => isScalar(e, heap) || isEdgeTuple(e, heap));
-  });
+  return adjacency(obj, heap) !== undefined;
 }
 
 function isEdgeTuple(value: unknown, heap: Record<string, HeapObject>): boolean {
@@ -691,56 +721,123 @@ function isEdgeTuple(value: unknown, heap: Record<string, HeapObject>): boolean 
   return !!found && found[1].t === "seq" && found[1].items?.length === 2 && isScalar(found[1].items[0], heap);
 }
 
-function graphView(id: string, name: string, obj: HeapObject, locals: Local[], heap: Record<string, HeapObject>): GraphView {
-  const nodeKey = (v: unknown) => `${id}:${formatValue(v, heap, 1)}`;
-  const byName = new Map(locals.map((l) => [l.name, l.value] as const));
-  const distName = ["dist", "distance", "dists", "cost"].find((n) => byName.has(n));
-  const dist = lookup(distName ? byName.get(distName) : undefined, heap);
-  const visited = members(byName.get("visited") ?? byName.get("seen") ?? byName.get("done"), heap);
-  const current = [...CURRENT_NAMES].map((n) => byName.get(n)).find((v) => v !== undefined && isScalar(v, heap));
-  const next = [...NEXT_NAMES].map((n) => byName.get(n)).find((v) => v !== undefined && isScalar(v, heap));
+/**
+ * How the code walks the graph called name: the node being processed is what it indexes the
+ * graph with, as u in name[u], and the neighbour is what it loops over, as v in
+ * `for v in name[u]` or `for v, w in name[u].items()`. Names used nearer the running line come
+ * first, so the main loop's u wins over a counting loop's leftover n.
+ */
+function graphRoles(name: string, lines: readonly string[], at: number): { current: string[]; next: string[] } {
+  const used = new Map<string, number>(); // name -> distance from the running line to its nearest use
+  const next = new Set<string>();
+  const loop = new RegExp(String.raw`\bfor\s+\(?\s*([A-Za-z_]\w*)[^:]*?\bin\s+${name}\s*(\[|\.get\()`);
+  lines.forEach((line, i) => {
+    const near = (n: string) => used.set(n, Math.min(used.get(n) ?? Infinity, Math.abs(i + 1 - at)));
+    const m = loop.exec(line);
+    if (m) {
+      next.add(m[1]!);
+      near(m[1]!);
+    }
+    for (const n of subscripts([line]).names.get(name) ?? []) near(n);
+  });
+  const byNearness = (names: string[]) => names.sort((a, b) => used.get(a)! - used.get(b)!);
+  const current = byNearness([...(subscripts(lines).names.get(name) ?? [])].filter((n) => !next.has(n)));
+  return { current, next: byNearness([...next]) };
+}
+
+const DIST_NAMES = ["dist", "distance", "dists", "cost"];
+const VISITED_NAMES = ["visited", "seen", "done"];
+
+function graphView(id: string, name: string, obj: HeapObject, locals: Local[], heap: Record<string, HeapObject>, lines: readonly string[], at: number): GraphView {
+  const graph = adjacency(obj, heap)!;
+  const text = (v: unknown) => formatValue(v, heap, 1);
+  const nodeKey = (v: unknown) => `${id}:${text(v)}`;
+  const texts = new Set(graph.flatMap(([node, edges]) => [text(node), ...edges.map(([to]) => text(to))]));
+  // Locals are innermost first, so the running function's own u wins over a caller's.
+  const value = (local: string) => locals.find((l) => l.name === local)?.value;
+  const isNode = (v: Value | undefined) => v !== undefined && v !== null && isScalar(v, heap) && texts.has(text(v));
+  const roles = graphRoles(name, lines, at);
+  const current = [...roles.current, ...CURRENT_NAMES].map(value).find(isNode);
+  const next = [...roles.next, ...NEXT_NAMES].map(value).find(isNode);
+  const marks = graphMarks(name, locals, heap, lines, texts, [...roles.current, ...roles.next]);
   const nodes = new Map<string, GraphNode>();
   const edges: GraphEdge[] = [];
   const addNode = (v: unknown) => {
     const key = nodeKey(v);
     if (nodes.has(key)) return key;
-    const text = formatValue(v, heap, 1);
-    const state = current !== undefined && formatValue(current, heap, 1) === text ? "current" : next !== undefined && formatValue(next, heap, 1) === text ? "next" : visited.has(text) ? "visited" : "none";
-    const sub = dist.has(text) ? `${distName}=${dist.get(text)}` : undefined;
-    nodes.set(key, { key, text, state, ...(sub !== undefined ? { sub } : {}) });
+    const t = text(v);
+    const state = current !== undefined && text(current) === t ? "current" : next !== undefined && text(next) === t ? "next" : marks.visited.has(t) ? "visited" : "none";
+    const sub = marks.values.get(t);
+    nodes.set(key, { key, text: t, state, ...(sub !== undefined ? { sub: `${marks.label}=${sub}` } : {}) });
     return key;
   };
-  for (const pair of obj.items ?? []) {
-    const [k, list] = pair as [Value, Value];
-    const from = addNode(k);
-    for (const entry of deref(list, heap)?.[1].items ?? []) {
-      const tuple = deref(entry, heap)?.[1].items;
-      const to = addNode(tuple ? tuple[0] : entry);
-      const weight = tuple ? formatValue(tuple[1], heap, 1) : undefined;
+  for (const [node, list] of graph) {
+    const from = addNode(node);
+    for (const [entry, weight] of list) {
+      const to = addNode(entry);
       const active = nodes.get(from)!.state === "current" && nodes.get(to)!.state === "next";
-      edges.push({ key: `${from}->${to}`, from, to, active, ...(weight !== undefined ? { weight } : {}) });
+      edges.push({ key: `${from}->${to}`, from, to, active, ...(weight !== undefined ? { weight: text(weight) } : {}) });
     }
   }
   return { kind: "graph", key: id, label: name, nodes: [...nodes.values()], edges };
 }
 
-function lookup(value: Value | undefined, heap: Record<string, HeapObject>): Map<string, string> {
-  const obj = deref(value, heap)?.[1];
-  const out = new Map<string, string>();
-  if (obj?.t === "map") for (const pair of obj.items ?? []) {
-    const [k, v] = pair as [Value, Value];
-    out.set(formatValue(k, heap, 1), formatValue(v, heap, 1));
+/**
+ * What to write under each node and which nodes count as visited. Usual names come first:
+ * dist or cost for the values, visited or seen for the visited nodes. Otherwise the values come
+ * from a dict or list the code indexes with the node variables, as indegree[v] or parent[v],
+ * and visited from a set of nodes or a list of True and False indexed by node.
+ */
+function graphMarks(name: string, locals: Local[], heap: Record<string, HeapObject>, lines: readonly string[], nodes: Set<string>, roles: string[]) {
+  const seen = new Set<string>();
+  const own = locals.filter((l) => l.name !== name && !seen.has(l.name) && seen.add(l.name));
+  const indexedByNode = (local: string) => roles.some((r) => subscripts(lines).names.get(local)?.has(r));
+  let label = "";
+  let values = new Map<string, string>();
+  let visited = new Set<string>();
+  for (const { name: local, value } of [...own.filter((l) => DIST_NAMES.includes(l.name)), ...own]) {
+    const found = byNode(value, heap, nodes);
+    if (!found || found.bools || !(DIST_NAMES.includes(local) || indexedByNode(local))) continue;
+    [label, values] = [local, found.values];
+    break;
   }
-  return out;
+  for (const { name: local, value } of [...own.filter((l) => VISITED_NAMES.includes(l.name)), ...own]) {
+    const obj = deref(value, heap)?.[1];
+    if (obj?.t === "seq" && (obj.cls === "set" || obj.cls === "frozenset") && (VISITED_NAMES.includes(local) || (obj.items?.length && obj.items.every((i) => nodes.has(nodeText(i, heap)))))) {
+      visited = new Set((obj.items ?? []).map((i) => nodeText(i, heap)));
+      break;
+    }
+    const found = byNode(value, heap, nodes);
+    if (found && (found.bools || VISITED_NAMES.includes(local)) && (VISITED_NAMES.includes(local) || indexedByNode(local))) {
+      visited = new Set([...found.values].filter(([, v]) => v !== "False" && v !== "0" && v !== "None").map(([k]) => k));
+      break;
+    }
+  }
+  return { label, values, visited };
 }
 
-function members(value: Value | undefined, heap: Record<string, HeapObject>): Set<string> {
+const nodeText = (v: unknown, heap: Record<string, HeapObject>) => formatValue(v, heap, 1);
+
+/** A dict keyed by nodes, or a list indexed by them, as node text to value text; bools says whether every value is True or False. */
+function byNode(value: Value | undefined, heap: Record<string, HeapObject>, nodes: Set<string>): { values: Map<string, string>; bools: boolean } | undefined {
   const obj = deref(value, heap)?.[1];
-  const out = new Set<string>();
-  if (obj?.t === "seq") for (const item of obj.items ?? []) out.add(formatValue(item, heap, 1));
-  if (obj?.t === "map") for (const pair of obj.items ?? []) {
-    const [k, v] = pair as [Value, Value];
-    if (v !== false && v !== 0 && v !== null) out.add(formatValue(k, heap, 1));
+  const values = new Map<string, string>();
+  let bools = true;
+  const add = (k: string, v: unknown) => {
+    if (!isScalar(v, heap)) return false;
+    values.set(k, nodeText(v, heap));
+    bools &&= typeof v === "boolean";
+    return true;
+  };
+  if (obj?.t === "map") {
+    for (const pair of obj.items ?? []) {
+      const [k, v] = pair as [Value, Value];
+      if (!nodes.has(nodeText(k, heap)) || !add(nodeText(k, heap), v)) return undefined;
+    }
+  } else if (obj?.t === "seq" && obj.cls === "list") {
+    if (!(obj.items ?? []).every((v, i) => add(String(i), v))) return undefined;
+  } else {
+    return undefined;
   }
-  return out;
+  return values.size && [...values.keys()].some((k) => nodes.has(k)) ? { values, bools } : undefined;
 }

@@ -86,6 +86,46 @@ describe("shape inference", () => {
     expect(active.map((e) => [e.from, e.to, e.weight])).toEqual([[`${graph.key}:2`, `${graph.key}:1`, "2"]]);
   });
 
+  it("takes a dict of lists for a graph only if the lists name its keys, and a dict of dicts too", () => {
+    const map = (...items: unknown[]) => ({ t: "map", cls: "dict", items });
+    const list = (...items: unknown[]) => ({ t: "seq", cls: "list", items });
+    const food = { "1": map(["fruit", { ref: 2 }]), "2": list("apple", "pear") };
+    expect(inferViews(stateWith({ menu: { ref: 1 } }, food))).toEqual([]);
+    const roads = { "1": map(["a", { ref: 2 }], ["b", { ref: 3 }]), "2": map(["b", 7]), "3": map(["a", 7]) };
+    const [graph] = inferViews(stateWith({ roads: { ref: 1 } }, roads)) as [GraphView];
+    expect(graph.edges.map((e) => [e.from, e.to, e.weight])).toEqual([['1:"a"', '1:"b"', "7"], ['1:"b"', '1:"a"', "7"]]);
+  });
+
+  it("finds the node being processed and its neighbour from how the code walks the graph", () => {
+    // Unusual names: at is what the code indexes g with, nb is what it loops over. A caller's at
+    // (the outer frame) mustn't win over the running function's own. indegree is indexed by
+    // node, so it labels the nodes; reached is a set of nodes, so they count as visited.
+    const map = (...items: unknown[]) => ({ t: "map", cls: "dict", items });
+    const heap = {
+      "1": map([0, { ref: 2 }], [1, { ref: 3 }], [2, { ref: 4 }]),
+      "2": { t: "seq", cls: "list", items: [1, 2] },
+      "3": { t: "seq", cls: "list", items: [2] },
+      "4": { t: "seq", cls: "list", items: [] },
+      "5": map([0, 0], [1, 0], [2, 1]),
+      "6": { t: "seq", cls: "set", items: [0] },
+    };
+    const frame = (fid: number, locals: Record<string, unknown>) => ({ fid, fn: "f", line: 1, locals });
+    const state = { ev: "line", line: 2, heap, stack: [frame(1, { g: { ref: 1 }, at: 0 }), frame(2, { g: { ref: 1 }, at: 1, nb: 2, indegree: { ref: 5 }, reached: { ref: 6 } })] } as State;
+    const lines = ["for nb in g[at]:", "    indegree[nb] -= 1"];
+    const [graph] = inferViews(state, undefined, lines) as [GraphView];
+    expect(graph.nodes.map((n) => [n.text, n.state, n.sub])).toEqual([["0", "visited", "indegree=0"], ["1", "current", "indegree=0"], ["2", "next", "indegree=1"]]);
+    expect(graph.edges.filter((e) => e.active).map((e) => [e.from, e.to])).toEqual([["1:1", "1:2"]]);
+    // A list of True and False indexed by node marks the visited ones too.
+    const flags = { ...heap, "7": { t: "seq", cls: "list", items: [false, false, true] } };
+    const flagged = { ...state, heap: flags, stack: [frame(2, { g: { ref: 1 }, at: 1, done_yet: { ref: 7 } })] } as State;
+    const [g2] = inferViews(flagged, undefined, ["for nb in g[at]:", "    done_yet[at] = True"]) as [GraphView];
+    expect(g2.nodes.map((n) => n.state)).toEqual(["none", "current", "visited"]);
+    // Two names index g; the one used nearer the running line (line 4) is the node being processed.
+    const loops = ["for n in g:", "    for m in g[n]:", "        pass", "for nb in g[at]:"];
+    const leftover = { ...state, line: 4, stack: [frame(2, { g: { ref: 1 }, n: 2, at: 0 })] } as State;
+    expect((inferViews(leftover, undefined, loops)[0] as GraphView).nodes.find((x) => x.state === "current")!.text).toBe("0");
+  });
+
   it("shows a list of equal lists as a grid, on the cell the line fills and the cells it reads", () => {
     // Step 39, line 9: dp[i][j] = max(dp[i - 1][j], dp[i][j - 1]) with i = 2 and j = 3.
     const [view] = viewsAt(lcs, 39) as [GridView];

@@ -20,6 +20,7 @@ function format(value: unknown, heap: Record<string, HeapObject>, depth: number)
   if ("inf" in tagged) return tagged.inf === 1 ? "∞" : "-∞";
   if ("nan" in tagged) return "nan";
   if ("bigint" in tagged) return String(tagged.bigint);
+  if ("float" in tagged) return String(tagged.float);
   if ("ref" in tagged) return formatObject(heap[String(tagged.ref)], heap, depth);
   return "?";
 }

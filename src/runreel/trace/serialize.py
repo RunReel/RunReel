@@ -96,9 +96,12 @@ class Serializer:
             return n if -SAFE_INT <= n <= SAFE_INT else {"bigint": str(n)}
         if t is float:
             f = cast(float, x)
-            if math.isfinite(f):
-                return f
-            return _NAN if math.isnan(f) else _INF if f > 0 else _NEG_INF
+            if not math.isfinite(f):
+                return _NAN if math.isnan(f) else _INF if f > 0 else _NEG_INF
+            # A JSON reader in the browser turns 1.0 into 1, and writes 1e-05 as 0.00001, so a
+            # float it would print differently from Python keeps Python's text.
+            text = repr(f)
+            return {"float": text} if text.endswith(".0") or "e" in text else f
         if t is str:
             s = cast(str, x)
             return s if len(s) <= MAX_STR else s[:MAX_STR] + "…"

@@ -45,6 +45,11 @@ describe("shape inference", () => {
     expect(Object.fromEntries(views.map((v) => [v.label, v.pointers.map((p) => p.name)]))).toEqual({ a: ["i", "p", "lo"], result: [], b: ["j", "lo"] });
   });
 
+  it("shows floats as Python prints them", () => {
+    const state = stateWith({ xs: { ref: 1 } }, { "1": { t: "seq", cls: "list", items: [{ float: "1.0" }, 0.5, { float: "-0.0" }, { float: "1e-05" }] } });
+    expect((inferViews(state)[0] as ArrayView).cells.map((c) => c.text)).toEqual(["1.0", "0.5", "-0.0", "1e-05"]);
+  });
+
   it("marks the cells that changed since the step before", () => {
     const trace = {
       steps: [

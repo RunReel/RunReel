@@ -36,6 +36,19 @@ def test_scalars_stay_inline_and_special_numbers_are_tagged() -> None:
     assert heap == {}
 
 
+def test_floats_a_json_reader_would_print_differently_keep_their_text() -> None:
+    values, _ = snapshot(1.0, -0.0, 0.5, 1e-05, 0.0001, 1.5e16, 123456789012345.6)
+    assert values == [
+        {"float": "1.0"},
+        {"float": "-0.0"},
+        0.5,
+        {"float": "1e-05"},
+        0.0001,
+        {"float": "1.5e+16"},
+        123456789012345.6,
+    ]
+
+
 def test_long_strings_are_cut() -> None:
     (value,), _ = snapshot("x" * (MAX_STR + 5))
     assert value == "x" * MAX_STR + "…"
@@ -156,11 +169,11 @@ def test_values_that_are_equal_but_not_the_same_still_count_as_changes() -> None
     nested: list[Any] = [0, [2]]
     serializer.value(row), serializer.value(nested)
     serializer.heap()
-    row["n"] = 1.0  # equal to 1, but it has to be sent as 1.0
+    row["n"] = 1.0  # equal to 1, but it has to be sent, as 1.0
     nested[1] = list(nested[1])  # an equal copy is another object, with an id of its own
     serializer.value(row), serializer.value(nested)
     heap = serializer.heap()
-    assert type(heap[1]["items"][0][1]) is float
+    assert heap[1]["items"][0][1] == {"float": "1.0"}
     assert heap[2]["items"] == [0, {"ref": 4}]
 
 

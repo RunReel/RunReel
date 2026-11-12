@@ -34,6 +34,7 @@ values: st.SearchStrategy[Value] = st.one_of(
     st.text(max_size=6),
     st.sampled_from([{"inf": 1}, {"inf": -1}, {"nan": 1}]),
     st.integers(min_value=2**53, max_value=2**70).map(lambda n: {"bigint": str(n)}),
+    st.sampled_from(["1.0", "-0.0", "1e-05", "1.5e+16"]).map(lambda f: {"float": f}),
     st.integers(min_value=0, max_value=30).map(lambda i: {"ref": i}),
 )
 

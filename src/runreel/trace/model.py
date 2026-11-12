@@ -1,8 +1,10 @@
 """Trace format v1: the JSON shapes shared by the tracer, the codec and the player.
 
-A value is a JSON scalar or one of four tagged objects: {"ref": id} points to a heap
+A value is a JSON scalar or one of five tagged objects: {"ref": id} points to a heap
 object, and {"inf": 1 | -1}, {"nan": 1} and {"bigint": "digits"} carry numbers that
-JSON can't hold. The formal definition is schema/trace-v1.schema.json.
+JSON can't hold. {"float": "1.0"} carries a float as Python prints it, when a JSON reader
+would print it differently (1.0 as 1, -0.0 as 0, 1e-05 as 0.00001). The formal definition
+is schema/trace-v1.schema.json.
 """
 
 from __future__ import annotations

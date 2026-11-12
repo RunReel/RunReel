@@ -68,6 +68,13 @@
           "properties": { "bigint": { "type": "string", "pattern": "^-?[0-9]+$" } },
           "required": ["bigint"],
           "additionalProperties": false
+        },
+        {
+          "description": "A float as Python prints it, where a JSON reader would print it differently: 1.0, -0.0, 1e-05.",
+          "type": "object",
+          "properties": { "float": { "type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?(e[+-][0-9]+)?$" } },
+          "required": ["float"],
+          "additionalProperties": false
         }
       ]
     },

@@ -214,6 +214,8 @@ def _describe(value: Any, heap: dict[int, Any], depth: int) -> str:
         return "nan"
     if "bigint" in value:
         return str(value["bigint"])
+    if "float" in value:
+        return str(value["float"])
     obj = heap.get(value.get("ref", -1))
     if obj is None or depth > 2:
         return "…"

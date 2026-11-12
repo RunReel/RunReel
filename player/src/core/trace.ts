@@ -12,7 +12,8 @@ export type Value =
   | { ref: number }
   | { inf: 1 | -1 }
   | { nan: 1 }
-  | { bigint: string };
+  | { bigint: string }
+  | { float: string }; // a float as Python prints it, where JSON would print it differently: 1.0, -0.0
 
 export type Event = "call" | "line" | "return" | "exception";
 

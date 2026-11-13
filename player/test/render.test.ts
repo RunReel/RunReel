@@ -66,6 +66,41 @@ describe("renderers", () => {
     expect([over.y1 < top, over.y1 === over.y2]).toEqual([true, true]);
   });
 
+  it("fans edges between the same nodes out as arcs, and draws an edge to itself as a loop", () => {
+    const heap = { "1": { t: "map", cls: "dict", items: [[0, { ref: 2 }], [1, { ref: 3 }]] }, "2": { t: "seq", cls: "list", items: [1, 1, 1, 0] }, "3": { t: "seq", cls: "list", items: [] } };
+    const state = { ev: "line", line: 1, stack: [{ fid: 1, fn: "f", line: 1, locals: { g: { ref: 1 } } }], heap } as State;
+    const lines = composeScene(inferViews(state)).items.filter((i): i is Extract<Item, { type: "line" }> => i.type === "line");
+    const [first, middle, last] = ["", "#1", "#2"].map((n) => lines.find((l) => l.key === `edge:1:0->1:1${n}`)!);
+    expect(middle!.via).toBeUndefined(); // the middle one of three stays straight
+    const side = (l: typeof first) => Math.sign((l!.via!.x - (l!.x1 + l!.x2) / 2) || (l!.via!.y - (l!.y1 + l!.y2) / 2));
+    expect([side(first), side(last)].sort()).toEqual([-1, 1]); // and the others bend to either side
+    expect(lines.filter((l) => l.key.startsWith("edge:1:0->1:0")).map((l) => [l.key, !!l.arrow])).toEqual([
+      ["edge:1:0->1:0:out", false],
+      ["edge:1:0->1:0:across", false],
+      ["edge:1:0->1:0", true],
+    ]);
+  });
+
+  it("draws an undirected graph without arrowheads, and a directed two-way pair as two arrows", () => {
+    const graphOf = (lists: number[][]) => {
+      const heap: Record<string, unknown> = { "1": { t: "map", cls: "dict", items: lists.map((_, i) => [i, { ref: i + 2 }]) } };
+      lists.forEach((l, i) => (heap[String(i + 2)] = { t: "seq", cls: "list", items: l }));
+      const state = { ev: "line", line: 1, stack: [{ fid: 1, fn: "f", line: 1, locals: { g: { ref: 1 } } }], heap } as State;
+      return composeScene(inferViews(state));
+    };
+    const edges = (lists: number[][]) => graphOf(lists).items.filter((i): i is Extract<Item, { type: "line" }> => i.type === "line");
+    expect(edges([[1], [0]]).map((l) => [l.key, !!l.arrow])).toEqual([["edge:1:0->1:1", false]]); // undirected
+    const twoWay = edges([[1, 2], [0], []]);
+    expect(twoWay.map((l) => [l.key, !!l.arrow, !!l.via])).toEqual([
+      ["edge:1:0->1:1", true, true],
+      ["edge:1:0->1:2", true, false],
+      ["edge:1:1->1:0", true, true],
+    ]);
+    // A busy graph gets a bigger circle than a sparse one with the same nodes.
+    const all = [0, 1, 2, 3, 4, 5];
+    expect(graphOf(all.map((i) => all.filter((j) => j !== i))).width).toBeGreaterThan(graphOf(all.map((i) => [(i + 1) % 6])).width);
+  });
+
   it("highlights the edge being relaxed", () => {
     const active = sceneAt(dijkstra, 28).items.filter((i) => i.type === "line" && i.cls.includes("rr-active"));
     expect(active).toHaveLength(1);

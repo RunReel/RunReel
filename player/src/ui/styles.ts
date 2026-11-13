@@ -76,8 +76,8 @@ html, body { margin: 0; height: 100%; background: var(--rr-bg); color: var(--rr-
 .rr-circle.rr-current circle { fill: var(--rr-current-bg); stroke: var(--rr-red); stroke-width: 2.5; }
 .rr-circle.rr-next circle { fill: var(--rr-next-bg); stroke: var(--rr-blue); stroke-width: 2.5; }
 .rr-circle.rr-visited circle { fill: var(--rr-visited-bg); stroke: var(--rr-green); }
-.rr-line line { stroke: var(--rr-muted); stroke-width: 1.5; }
-.rr-line.rr-active line { stroke: var(--rr-red); stroke-width: 3; }
+.rr-line line, .rr-line path { stroke: var(--rr-muted); stroke-width: 1.5; fill: none; }
+.rr-line.rr-active line, .rr-line.rr-active path { stroke: var(--rr-red); stroke-width: 3; }
 .rr-line .rr-weight { fill: var(--rr-muted); font: 11px var(--rr-mono); }
 .rr-line.rr-active .rr-weight { fill: var(--rr-red); font-weight: 700; }
 .rr-arrowhead { fill: var(--rr-muted); }

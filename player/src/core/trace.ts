@@ -120,7 +120,8 @@ export function applyStep(state: State, step: Step): void {
     if (!frame) throw new Error(`frame ${fid} is not on the stack`);
     if (patch.fn !== undefined) frame.fn = patch.fn;
     if (patch.line !== undefined) frame.line = patch.line;
-    Object.assign(frame.locals, patch.set);
+    // Spread, not Object.assign, so a variable named __proto__ stays an ordinary variable.
+    if (patch.set) frame.locals = { ...frame.locals, ...patch.set };
     for (const name of patch.del ?? []) delete frame.locals[name];
   }
   for (const [id, entry] of Object.entries(step.heap ?? {})) {

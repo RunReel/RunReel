@@ -77,19 +77,25 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_lines(spec: str) -> frozenset[int]:
-    """Line ranges like "12-30,40" as a set of line numbers."""
-    lines: set[int] = set()
+def parse_lines(spec: str) -> tuple[tuple[int, int], ...]:
+    """Line ranges like "12-30,40" as (first, last) pairs."""
+    ranges: list[tuple[int, int]] = []
     try:
         for part in spec.split(","):
             first, dash, last = part.strip().partition("-")
             start, end = int(first), int(last if dash else first)
             if start < 1 or end < start:
                 raise ValueError
-            lines.update(range(start, end + 1))
+            ranges.append((start, end))
     except ValueError:
         raise argparse.ArgumentTypeError(f"not a line range: {spec!r} (try 12-30,40)") from None
-    return frozenset(lines)
+    return tuple(ranges)
+
+
+def lines_in(ranges: tuple[tuple[int, int], ...], file: Path) -> frozenset[int]:
+    """The line numbers in ranges that file has, so a range like 1-99999999999 stays small."""
+    total = len(file.read_text(encoding="utf-8").splitlines())
+    return frozenset(n for start, end in ranges for n in range(start, min(end, total) + 1))
 
 
 def positive(text: str) -> int:
@@ -130,12 +136,20 @@ def run(args: argparse.Namespace) -> int:
     file: Path = args.file
     out: Path = args.out or file.with_suffix(".reel.html")
     target = out.absolute()  # fixed now, in case the program changes the working directory
+    stdin = ""
+    if args.stdin:
+        try:
+            stdin = args.stdin.read_text(encoding="utf-8")
+        except OSError as error:
+            return fail(f"can't read {args.stdin}: {error.strerror or error}")
+        except UnicodeDecodeError:
+            return fail(f"can't read {args.stdin}: it isn't UTF-8 text")
     try:
-        stdin = args.stdin.read_text(encoding="utf-8") if args.stdin else ""
+        lines = None if args.lines is None else lines_in(args.lines, file)
         trace = record(
             file,
             args.call,
-            lines=args.lines,
+            lines=lines,
             max_steps=args.max_steps,
             args=args.args,
             stdin=stdin,
@@ -154,6 +168,17 @@ def run(args: argparse.Namespace) -> int:
     if not trace["steps"] and "stopped" in trace:
         message = f"{file} was {stopped(trace, args.timeout)} before any step was recorded"
         return fail(f"{message}. {CALL_HINT}" if args.call else message)
+    if not trace["steps"]:  # an empty reel would only puzzle, so say why there's nothing to show
+        if "error" in trace:
+            return fail(f"{args.call or file} failed before any of its code ran: {trace['error']}")
+        if lines is not None:
+            return fail("no step was recorded: none of the lines given with --lines ran")
+        if args.call:
+            return fail(
+                f"no step was recorded: {args.call} ran none of {file}'s own code;"
+                " call one of the functions it defines"
+            )
+        return fail(f"no step was recorded: {file} has no code to run")
     try:
         write_reel(trace, target, mark=not args.no_mark)
     except FileNotFoundError as error:

@@ -28,6 +28,7 @@ from runreel.trace.serialize import Serializer, without_addresses
 
 MAX_STEPS = 5000
 TIMEOUT = 60.0  # seconds
+MAX_OUTPUT = 1_000_000  # characters of printed text kept
 _RESUMABLE = inspect.CO_GENERATOR | inspect.CO_COROUTINE | inspect.CO_ASYNC_GENERATOR
 _HIDDEN_AT_TOP_LEVEL = (types.ModuleType, types.FunctionType, types.BuiltinFunctionType, type)
 
@@ -124,6 +125,7 @@ def record(
         elif finished:
             trace["result"] = recorder.result(returned)
     trace["steps"] = encode(recorder.states)
+    output.finish()
     if output.chunks:
         trace["stdout"] = output.chunks
     if recorder.truncated:
@@ -342,19 +344,39 @@ def _describe(error: BaseException) -> str:
 
 
 class _Output(io.TextIOBase):
-    """Captures printed text as [step, text] pairs, joining writes made during the same step."""
+    """Captures printed text as [step, text] pairs, joining writes made during the same step.
+    Past MAX_OUTPUT characters, printed text is only counted, so heavy printing can't swell the
+    trace or use up memory."""
 
     def __init__(self, recorder: _Recorder) -> None:
         self.recorder = recorder
         self.chunks: list[list[Any]] = []
+        self.kept = 0
+        self.dropped = 0
 
     def writable(self) -> bool:
         return True
 
     def write(self, text: str) -> int:
+        n = len(text)
+        room = MAX_OUTPUT - self.kept
+        if n > room:
+            self.dropped += n - max(room, 0)
+            text = text[: max(room, 0)]
+            if not text:
+                return n
+        self.kept += len(text)
+        self._keep(text)
+        return n
+
+    def finish(self) -> None:
+        """Note how much printed text wasn't kept, if any."""
+        if self.dropped:
+            self._keep(f"\n… {self.dropped:,} more characters were printed but not kept\n")
+
+    def _keep(self, text: str) -> None:
         step = max(len(self.recorder.states) - 1, 0)
         if self.chunks and self.chunks[-1][0] == step:
             self.chunks[-1][1] += text
         else:
             self.chunks.append([step, text])
-        return len(text)

@@ -47,7 +47,7 @@ def open_source(recorder: Recorder, backend: Backend = "auto") -> Source:
     """sys.monitoring when it's available and has a free tool id, else sys.settrace."""
     if backend not in ("auto", "monitoring", "settrace"):
         raise ValueError(f"unknown backend {backend!r}")
-    if sys.version_info >= (3, 12):
+    if sys.version_info >= (3, 12) and hasattr(sys, "monitoring"):  # PyPy 3.12 has none
         if backend != "settrace":
             tool = Monitoring.free_tool()
             if tool is not None:
@@ -55,7 +55,7 @@ def open_source(recorder: Recorder, backend: Backend = "auto") -> Source:
             if backend == "monitoring":
                 raise RuntimeError("no free sys.monitoring tool id: 3 and 4 are both in use")
     elif backend == "monitoring":
-        raise ValueError("the monitoring backend needs Python 3.12 or newer")
+        raise ValueError("the monitoring backend needs Python 3.12 or newer, with sys.monitoring")
     return Settrace(recorder)
 
 
@@ -102,7 +102,7 @@ class Settrace:
         return self.on_event
 
 
-if sys.version_info >= (3, 12):
+if sys.version_info >= (3, 12) and hasattr(sys, "monitoring"):
     _mon = sys.monitoring
     _E = _mon.events
     # Ids 0-2 and 5 are set aside for debuggers, coverage, profilers and optimisers.

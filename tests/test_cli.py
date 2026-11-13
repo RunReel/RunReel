@@ -13,7 +13,7 @@ import pytest
 
 import runreel.reel
 from runreel import __version__
-from runreel.cli import main, parse_lines
+from runreel.cli import lines_in, main, parse_lines
 
 ROOT = Path(__file__).parent.parent
 STUB = "window.RunReelPlayer={mount(){}};"
@@ -247,12 +247,45 @@ def test_a_missing_player_exits_with_1(
     assert "make build" in capsys.readouterr().err
 
 
-def test_line_ranges() -> None:
-    assert parse_lines("3") == {3}
-    assert parse_lines("12-14,20") == {12, 13, 14, 20}
+def test_line_ranges(tmp_path: Path) -> None:
+    assert parse_lines("3") == ((3, 3),)
+    assert parse_lines("12-14,20") == ((12, 14), (20, 20))
     for bad in ["", "x", "5-3", "0-2", "1-"]:
         with pytest.raises(Exception, match="not a line range"):
             parse_lines(bad)
+    script = tmp_path / "x.py"
+    script.write_text("a = 1\nb = 2\nc = 3\n")
+    # Only the lines the file has: a huge range doesn't build billions of numbers.
+    assert lines_in(parse_lines("2-99999999999"), script) == {2, 3}
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (["--call", "len([1, 2])"], "len([1, 2]) ran none of"),
+        (["--call", "nope()"], "nope() failed before any of its code ran: NameError"),
+        (["--call", "f()", "--lines", "9"], "none of the lines given with --lines ran"),
+    ],
+)
+def test_a_run_with_no_steps_says_why_instead_of_writing_an_empty_reel(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], args: list[str], message: str
+) -> None:
+    script = tmp_path / "f.py"
+    script.write_text("def f():\n    return 1\n")
+    assert main(["run", str(script), *args]) == 1
+    assert message in capsys.readouterr().err
+    assert not script.with_suffix(".reel.html").exists()
+
+
+def test_stdin_that_cant_be_read_is_named_in_the_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    script = tmp_path / "f.py"
+    script.write_text("x = input()\n")
+    data = tmp_path / "input.bin"
+    data.write_bytes(b"\xff\xfe")
+    assert main(["run", str(script), "--stdin", str(data)]) == 1
+    assert f"can't read {data}: it isn't UTF-8 text" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

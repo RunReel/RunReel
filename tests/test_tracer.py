@@ -54,6 +54,17 @@ def test_values_python_can_hold_but_not_print_or_encode_dont_break_the_run(
         assert state["heap"][big["ref"]].get("v") == "<int with 5,001 digits>"
 
 
+def test_printed_text_past_the_limit_is_counted_not_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tracer, "MAX_OUTPUT", 25)
+    path = program(tmp_path, "def f():\n    for i in range(5):\n        print('x' * 9)\n")
+    printed = "".join(text for _, text in record(path, "f()")["stdout"])
+    assert (
+        printed == "xxxxxxxxx\nxxxxxxxxx\nxxxxx\n… 25 more characters were printed but not kept\n"
+    )
+
+
 def test_reproduces_the_hand_written_reference_states() -> None:
     trace = record(FIXTURES / "front.py", "front([3, -1], [])")
     assert canonical(states(trace)) == canonical(load_states("sample-states.json"))

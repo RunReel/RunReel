@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -126,3 +127,21 @@ def test_a_tracer_that_was_already_running_is_restored() -> None:
         assert sys.gettrace() is other
     finally:
         sys.settrace(None)
+
+
+def test_a_python_without_sys_monitoring_records_with_settrace(tmp_path: Path) -> None:
+    # PyPy's 3.12 has no sys.monitoring; RunReel has to import and record without it.
+    path = tmp_path / "prog.py"
+    path.write_text("def f():\n    x = 1\n    return x\n")
+    script = f"""
+import sys
+if hasattr(sys, "monitoring"):
+    del sys.monitoring
+from runreel.trace import record
+print(record({str(path)!r}, "f()")["result"])
+"""
+    done = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=60
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stdout == "1\n"

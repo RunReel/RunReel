@@ -29,6 +29,31 @@ def program(tmp_path: Path, text: str) -> Path:
     return path
 
 
+def test_values_python_can_hold_but_not_print_or_encode_dont_break_the_run(
+    tmp_path: Path,
+) -> None:
+    # A 5,001-digit int is past Python's limit for printing one, a lone surrogate (half an
+    # emoji) can't be written as UTF-8, and an error's text holds an object's address.
+    path = program(
+        tmp_path,
+        "def f():\n    big = 10 ** 5000\n    half = '\\ud83d'\n"
+        "    raise ValueError(f'bad {object()}')\n",
+    )
+    trace = record(path, "f()")
+    assert trace["error"] == "ValueError: bad <object object>"
+    text = dumps(trace)
+    text.encode("utf-8")
+    assert "\\ud83d" in text
+    assert json.loads(text) == json.loads(json.dumps(trace))  # and reads back the same
+    state = list(iter_states(trace["steps"]))[-1]
+    locals_ = state["stack"][-1]["locals"]
+    assert locals_["half"] == "\ud83d"
+    big = locals_["big"]
+    if hasattr(sys, "set_int_max_str_digits"):
+        assert isinstance(big, dict)
+        assert state["heap"][big["ref"]].get("v") == "<int with 5,001 digits>"
+
+
 def test_reproduces_the_hand_written_reference_states() -> None:
     trace = record(FIXTURES / "front.py", "front([3, -1], [])")
     assert canonical(states(trace)) == canonical(load_states("sample-states.json"))

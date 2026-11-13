@@ -8,7 +8,7 @@ import re
 from importlib import resources
 from pathlib import Path
 
-from runreel.trace import Trace
+from runreel.trace import Trace, dumps
 
 PLAYER = "_player/player.js"  # copied into the package by `make build`
 
@@ -23,8 +23,7 @@ def player_js() -> str:
 
 def render_reel(trace: Trace, *, player: str | None = None, mark: bool = True) -> str:
     """The reel's HTML. Nothing in it loads from the network."""
-    data = json.dumps(trace, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
-    data = data.replace("<", "\\u003c")  # so the trace can never close its <script> tag
+    data = dumps(trace).replace("<", "\\u003c")  # so the trace can never close its <script> tag
     script = re.sub(
         r"</(script)", r"<\\/\1", player if player is not None else player_js(), flags=re.I
     )

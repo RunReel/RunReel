@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import re
 from collections.abc import Iterable, Iterator, Sequence
 from itertools import chain, compress, count, repeat
 from operator import is_not, itemgetter
@@ -73,8 +74,16 @@ def state_at(steps: Sequence[Step], n: int) -> State:
 
 
 def dumps(trace: Trace) -> str:
-    """Serialise a trace as compact JSON. Raises on NaN or infinity, which must be tagged."""
-    return json.dumps(trace, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    """Serialise a trace as compact JSON. Raises on NaN or infinity, which must be tagged.
+
+    A lone surrogate in a string, half of an emoji say, can't be written as UTF-8, so it's
+    written as a JSON escape (\\ud83d), which reads back as the same string.
+    """
+    text = json.dumps(trace, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    return _SURROGATE.sub(lambda m: f"\\u{ord(m[0]):04x}", text)
+
+
+_SURROGATE = re.compile("[\ud800-\udfff]")
 
 
 def _empty_state() -> State:

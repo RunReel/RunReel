@@ -98,7 +98,19 @@ describe("shape inference", () => {
     expect(inferViews(stateWith({ menu: { ref: 1 } }, food))).toEqual([]);
     const roads = { "1": map(["a", { ref: 2 }], ["b", { ref: 3 }]), "2": map(["b", 7]), "3": map(["a", 7]) };
     const [graph] = inferViews(stateWith({ roads: { ref: 1 } }, roads)) as [GraphView];
-    expect(graph.edges.map((e) => [e.from, e.to, e.weight])).toEqual([['1:"a"', '1:"b"', "7"], ['1:"b"', '1:"a"', "7"]]);
+    // Every road has a twin back with the same weight, so it's undirected: one edge each.
+    expect([graph.directed, graph.edges.map((e) => [e.from, e.to, e.weight])]).toEqual([false, [['1:"a"', '1:"b"', "7"]]]);
+    // Walked from b to a, the one edge kept (a to b) still lights up.
+    const walked = inferViews(stateWith({ roads: { ref: 1 }, u: "b", v: "a" }, roads), undefined, ["for v in roads[u]:"])[0] as GraphView;
+    expect(walked.edges.map((e) => e.active)).toEqual([true]);
+    const oneWay = { ...roads, "3": map(["a", 7], ["a", 2]) }; // b goes back to a twice, once at 2
+    expect((inferViews(stateWith({ roads: { ref: 1 } }, oneWay))[0] as GraphView).directed).toBe(true);
+  });
+
+  it("keeps an edge listed twice as two edges", () => {
+    const heap = { "1": { t: "map", cls: "dict", items: [[0, { ref: 2 }], [1, { ref: 3 }]] }, "2": { t: "seq", cls: "list", items: [1, 1] }, "3": { t: "seq", cls: "list", items: [] } };
+    const [graph] = inferViews(stateWith({ g: { ref: 1 } }, heap)) as [GraphView];
+    expect(graph.edges.map((e) => [e.key, e.nth])).toEqual([["1:0->1:1", 0], ["1:0->1:1#1", 1]]);
   });
 
   it("finds the node being processed and its neighbour from how the code walks the graph", () => {

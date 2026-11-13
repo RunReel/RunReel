@@ -8,7 +8,7 @@ export type Item =
   | { key: string; type: "box"; x: number; y: number; w: number; h: number; text: string; cls: string }
   | { key: string; type: "circle"; x: number; y: number; r: number; text: string; sub?: string; cls: string }
   | { key: string; type: "label"; x: number; y: number; text: string; cls: string; anchor?: "start" | "middle" | "end" }
-  | { key: string; type: "line"; x1: number; y1: number; x2: number; y2: number; cls: string; arrow?: boolean; text?: string };
+  | { key: string; type: "line"; x1: number; y1: number; x2: number; y2: number; cls: string; arrow?: boolean; text?: string; via?: { x: number; y: number } };
 
 export interface Scene {
   width: number;
@@ -47,6 +47,7 @@ export function itemInner(item: Item): string {
     case "label":
       return `<text text-anchor="${item.anchor ?? "start"}">${esc(item.text)}</text>`;
     case "line": {
+      if (item.via) return curve(item, item.via);
       // The weight sits 40% of the way along, nudged to one side, so crossing edges' weights don't collide.
       const len = Math.hypot(item.x2 - item.x1, item.y2 - item.y1) || 1;
       const wx = item.x1 + (item.x2 - item.x1) * 0.4 + ((item.y2 - item.y1) / len) * 9;
@@ -56,6 +57,19 @@ export function itemInner(item: Item): string {
       return `<line x1="${round(item.x1)}" y1="${round(item.y1)}" x2="${round(item.x2)}" y2="${round(item.y2)}"${marker}/>${mid}`;
     }
   }
+}
+
+/** A line bent through a control point, as a quadratic curve, with its weight just outside its top. */
+function curve(item: Extract<Item, { type: "line" }>, via: { x: number; y: number }): string {
+  const marker = item.arrow ? ' marker-end="url(#rr-arrow)"' : "";
+  const path = `<path d="M${round(item.x1)} ${round(item.y1)}Q${round(via.x)} ${round(via.y)} ${round(item.x2)} ${round(item.y2)}"${marker}/>`;
+  if (item.text === undefined) return path;
+  const top = { x: (item.x1 + item.x2) / 4 + via.x / 2, y: (item.y1 + item.y2) / 4 + via.y / 2 };
+  const mid = { x: (item.x1 + item.x2) / 2, y: (item.y1 + item.y2) / 2 };
+  const len = Math.hypot(top.x - mid.x, top.y - mid.y) || 1;
+  const wx = top.x + ((top.x - mid.x) / len) * 9;
+  const wy = top.y + ((top.y - mid.y) / len) * 9;
+  return `${path}<text class="rr-weight" x="${round(wx)}" y="${round(wy)}" dy="0.35em" text-anchor="middle">${esc(item.text)}</text>`;
 }
 
 export function esc(text: string): string {

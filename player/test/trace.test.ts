@@ -53,6 +53,16 @@ describe("trace decoder", () => {
     expect(Object.getPrototypeOf(fields)).toBe(Object.prototype);
   });
 
+  it("keeps a variable named __proto__ as an ordinary variable", () => {
+    const trace = JSON.parse(
+      '[{"ev":"line","line":1,"key":true,"stack":[1],"frames":{"1":{"fn":"f","set":{"x":1}}},"heap":{"1":{"t":"obj","cls":"C","fields":{}}}},' +
+        '{"ev":"line","line":2,"frames":{"1":{"set":{"__proto__":{"ref":1}}}}}]',
+    ) as Step[];
+    const locals = stateAt(trace, 1).stack[0]!.locals;
+    expect(Object.entries(locals)).toEqual([["x", 1], ["__proto__", { ref: 1 }]]);
+    expect(Object.getPrototypeOf(locals)).toBe(Object.prototype);
+  });
+
   it("rejects a trace that doesn't start with a keyframe", () => {
     expect(() => stateAt([{ ev: "line", line: 1 }], 0)).toThrow("keyframe");
   });

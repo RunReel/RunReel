@@ -61,6 +61,7 @@ export interface GraphEdge {
   to: string;
   weight?: string;
   active: boolean;
+  nth: number; // how many edges from the same node to the same node come before this one
 }
 
 export interface GraphView {
@@ -68,7 +69,8 @@ export interface GraphView {
   key: string;
   label: string;
   nodes: GraphNode[];
-  edges: GraphEdge[];
+  edges: GraphEdge[]; // an undirected graph lists each edge once
+  directed: boolean;
 }
 
 export interface GridView {
@@ -776,10 +778,34 @@ function graphView(id: string, name: string, obj: HeapObject, locals: Local[], h
     for (const [entry, weight] of list) {
       const to = addNode(entry);
       const active = nodes.get(from)!.state === "current" && nodes.get(to)!.state === "next";
-      edges.push({ key: `${from}->${to}`, from, to, active, ...(weight !== undefined ? { weight: text(weight) } : {}) });
+      const nth = edges.filter((e) => e.from === from && e.to === to).length;
+      edges.push({ key: nth ? `${from}->${to}#${nth}` : `${from}->${to}`, from, to, active, nth, ...(weight !== undefined ? { weight: text(weight) } : {}) });
     }
   }
-  return { kind: "graph", key: id, label: name, nodes: [...nodes.values()], edges };
+  const directed = !isSymmetric(edges);
+  if (directed) return { kind: "graph", key: id, label: name, nodes: [...nodes.values()], edges, directed };
+  // Undirected: each edge is listed both ways, so keep the copy from the node listed first, and
+  // let it light up when the code walks it either way.
+  const order = [...nodes.keys()];
+  const once = edges
+    .filter((e) => order.indexOf(e.from) <= order.indexOf(e.to))
+    .map((e) => ({ ...e, active: e.active || edges.some((r) => r.from === e.to && r.to === e.from && r.nth === e.nth && r.active) }));
+  return { kind: "graph", key: id, label: name, nodes: [...nodes.values()], edges: once, directed };
+}
+
+/** Whether every edge has a twin going back with the same weight, as an undirected graph stored as a dict has. */
+function isSymmetric(edges: GraphEdge[]): boolean {
+  const count = new Map<string, number>();
+  const bump = (from: string, to: string, weight: string | undefined, by: number) => {
+    const key = JSON.stringify([from, to, weight ?? null]);
+    count.set(key, (count.get(key) ?? 0) + by);
+  };
+  for (const e of edges) {
+    if (e.from === e.to) continue;
+    bump(e.from, e.to, e.weight, 1);
+    bump(e.to, e.from, e.weight, -1);
+  }
+  return count.size > 0 && [...count.values()].every((n) => n === 0);
 }
 
 /**

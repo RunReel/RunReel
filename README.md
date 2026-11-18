@@ -37,6 +37,27 @@ uv run runreel run app.py -- --n 5
 
 `uv run runreel run --help` lists everything else.
 
+## Use it from your coding agent
+
+`skills/reel` is an [Agent Skill](https://agentskills.io) that teaches coding agents to make reels. The agent picks a small input that reaches every branch, runs RunReel, reads its one-line summary and hands you the reel, saying which steps to watch. It follows the Agent Skills format, so it works with agents that can read skills and run shell commands. Copy the folder to where yours looks for skills:
+
+| Agent | Folder |
+|---|---|
+| Claude Code | `~/.claude/skills/` (or `.claude/skills/` in a project) |
+| Codex | `~/.agents/skills/` (or `.agents/skills/` in a repo) |
+| Antigravity | `~/.gemini/config/skills/` (or `.agents/skills/` in a project) |
+| Cursor | `~/.cursor/skills/` (or `.cursor/skills/` in a project) |
+| GitHub Copilot | `~/.copilot/skills/` (or `.github/skills/` in a repo) |
+
+For example, from your clone:
+
+```sh
+mkdir -p ~/.claude/skills
+cp -r skills/reel ~/.claude/skills/
+```
+
+Then ask for a reel, say "show me this BFS running on a small graph". The agent runs the `runreel` command. Until RunReel is on PyPI, tell it where your clone is and it will run it from there through uv. The skill has the agent read code before running it, and ask you first when the code came from somewhere else or does more than compute.
+
 ## What works right now
 
 - Python 3.10 or newer. I work on 3.13, and every change is tested on 3.10 through 3.15.

@@ -225,6 +225,32 @@ def test_recording_runs_none_of_the_programs_code(tmp_path: Path, backend: Backe
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
+def test_classes_with_their_own_len_or_iter_are_recorded(tmp_path: Path, backend: Backend) -> None:
+    """A linked list class with its own __len__ and __iter__ is read through its fields,
+    never by calling them; it used to end the run with StopIteration after two steps. So
+    is an object made through a generic alias, which keeps the alias in __orig_class__."""
+    path = program(
+        tmp_path,
+        "from typing import Generic, TypeVar\n\nT = TypeVar('T')\n\n"
+        "class Node:\n    def __init__(self, val, next=None):\n"
+        "        self.val = val\n        self.next = next\n\n"
+        "class LinkedList:\n    def __init__(self):\n        self.head = None\n\n"
+        "    def push(self, val):\n        self.head = Node(val, self.head)\n\n"
+        "    def __len__(self):\n        raise RuntimeError('len ran')\n\n"
+        "    def __iter__(self):\n        raise RuntimeError('iter ran')\n\n"
+        "    def keys(self):\n        raise RuntimeError('keys ran')\n\n"
+        "class Box(Generic[T]):\n    def __init__(self, item):\n        self.item = item\n\n"
+        "def demo():\n    items = LinkedList()\n    items.push(1)\n    items.push(2)\n"
+        "    box = Box[int](items.head.val)\n    return box.item\n",
+    )
+    trace = record(path, "demo()", backend=backend)
+    assert trace["result"] == 2 and "error" not in trace
+    lists = [obj for s in states(trace) for obj in s["heap"].values() if obj["cls"] == "LinkedList"]
+    assert lists and all(obj["t"] == "obj" for obj in lists)
+    assert any("head" in obj.get("fields", {}) for obj in lists)  # read through its fields
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_what_the_program_changes_in_the_interpreter_is_put_back(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: Backend
 ) -> None:

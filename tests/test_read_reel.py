@@ -1,7 +1,6 @@
 """skills/reel/scripts/read_reel.py, which prints a reel as text for an agent that can't
 watch it: it rebuilds each step as the player does, says how a run ended and which lines ran,
-lists the steps with their links and what they printed, and turns what it can't read into one
-line."""
+lists the steps with what changed at each, and turns what it can't read into one line."""
 
 from __future__ import annotations
 
@@ -14,6 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 from hypothesis import given
@@ -22,6 +22,8 @@ from strategies import state_sequences
 
 from runreel.reel import write_reel
 from runreel.trace import State, encode, iter_states, record
+from runreel.trace.model import Event, Frame, Source, Trace
+from runreel.trace.serialize import MAX_OBJECTS
 
 ROOT = Path(__file__).parent.parent
 READ_REEL = ROOT / "skills" / "reel" / "scripts" / "read_reel.py"
@@ -136,8 +138,10 @@ def test_read_reel_lists_the_steps(reel: Path) -> None:
     done = run(str(reel), "--steps")
     assert done.returncode == 0, done.stderr
     listed = rows(done.stdout)
-    assert listed[0].split()[:3] == ["1", "0", "1"]
+    assert listed[0].split()[:3] == ["1", "0", "1"] and "call total(xs=[1, 2, 3])" in listed[0]
+    assert any("s=6" in row for row in listed)
     assert any("prints 'sum 6\\n'" in row for row in listed)
+    assert "returns 6" in listed[-2]
     assert listed[-1] == "The reel ends here: 12 steps · result 6"
     some = rows(run(str(reel), "--steps", "2-3").stdout)
     assert [row.split()[0] for row in some[:-1]] == ["2", "3"]
@@ -147,6 +151,239 @@ def test_read_reel_lists_the_steps(reel: Path) -> None:
         == "… 1 more step: list it with --steps 12"
     )
     assert run(str(reel), "--printed").stdout == "sum 6\n"
+
+
+CHANGES = """\
+def changes(n):
+    dp = [[0, 0], [0, 0]]
+    dist = {0: 0}
+    seen = set()
+    out = []
+    for i in range(1, n):
+        dp[i][i - 1] = 5
+        dist[i] = 7
+        seen.add(i)
+        out.append(9)
+    del dist[0]
+    out = sorted(out)
+    return out
+"""
+
+
+def test_read_reel_names_the_items_that_changed(tmp_path: Path) -> None:
+    """A change in place names the item, so a table filling up can be followed; a name bound
+    to a new object shows the object."""
+    (tmp_path / "changes.py").write_text(CHANGES)
+    trace = record(tmp_path / "changes.py", "changes(2)")
+    reel = write_reel(trace, tmp_path / "changes.reel.html", player="")
+    # The changes column starts after the step, link, line and code columns.
+    changed = ", ".join(row[54:] for row in rows(run(str(reel), "--steps").stdout))
+    for note in [
+        "dp[1][0]=5",
+        "dist[1]=7",
+        "seen |= {1}",
+        "out.append(9)",
+        "del dist[0]",
+        "out=[9]",
+    ]:
+        assert note in changed, note
+
+
+SCRIPT = """\
+total = 0
+
+
+class Node:
+    def __init__(self, val, next=None):
+        self.val = val
+        self.next = next
+
+
+def fill(a, i):
+    if i == len(a):
+        return a
+    a[i] = i * i
+    return fill(a, i + 1)
+
+
+def evens(n):
+    for i in range(n):
+        if i % 2 == 0:
+            yield i
+
+
+def check(x):
+    if x < 0:
+        raise ValueError("negative")
+    return x
+
+
+def bump():
+    global total
+    total += 1
+
+
+def main():
+    fill([0, 0, 0], 0)
+    out = list(evens(4))
+    try:
+        check(-1)
+    except ValueError:
+        pass
+    head = Node(1, Node(2, Node(3, Node(4))))
+    head.next.next.next.val = 40
+    seen = set(range(60))
+    seen.add(100)
+    bump()
+    return out
+
+
+main()
+"""
+
+
+def test_read_reel_says_what_each_step_did_where_it_did_it(tmp_path: Path) -> None:
+    """Each change shows once, at the step that made it, however deep it is or whichever
+    call made it, and calls, yields, exceptions and class bodies are told apart."""
+    (tmp_path / "script.py").write_text(SCRIPT)
+    reel = write_reel(record(tmp_path / "script.py"), tmp_path / "script.reel.html", player="")
+    listing = run(str(reel), "--steps", "1-5000").stdout
+    changed = "\n".join(row[54:] for row in rows(listing))
+    assert "runs the body of class Node" in changed and "__module__" not in changed
+    assert changed.count("a[1]=1") == 1 and changed.count("a[2]=4") == 1  # not again on return
+    assert "yields 0" in changed and "resumes evens" in changed and "yields 2" in changed
+    assert "leaves because of the exception" in changed
+    assert "head.next.next.next.val=40" in changed
+    assert "seen |= {100}" in changed and "seen -=" not in changed  # 61 items, all kept
+    assert "total=1 (in <module>)" in changed
+
+
+NARRATED = """\
+from collections import OrderedDict
+
+KEEP = []
+
+
+def register(cls):
+    return cls
+
+
+@register
+class Shape:
+    side = 1
+
+    def __init__(self, side):
+        self.side = side
+
+
+def count():
+    i = 0
+    while True:
+        got = yield i
+        i += 1
+
+
+def letters():
+    yield "a"
+    yield "b"
+
+
+def inner():
+    yield 1
+
+
+def outer():
+    yield from inner()
+
+
+def risky(xs):
+    try:
+        return xs[5]
+    finally:
+        xs.append(0)
+
+
+def fib(n):
+    calls = 0
+
+    def go(k):
+        nonlocal calls
+        calls += 1
+        return k if k < 2 else go(k - 1) + go(k - 2)
+
+    return go(n), calls
+
+
+def take(xs, ys, last):
+    return len(xs) + len(ys) + last
+
+
+def main():
+    dp = [[0] * 3] * 4
+    dp[1][1] = 5
+    a = [6, 5, 4, 3, 2, 1]
+    a.sort()
+    b = sorted(a)
+    flags = [0, 0]
+    flags[0] = False
+    d = {1: 10, 2: 20}
+    d[1] = d.pop(1)
+    od = OrderedDict(d)
+    od.move_to_end(2)
+    big = list(range(1000))
+    big.append(1)
+    stack = [1, 2]
+    g = count()
+    next(g)
+    g.send(stack.pop())
+    h = letters()
+    KEEP.append(h)
+    first = next(h)
+    total = take(list(range(30)), list(range(30)), stack.pop())
+    out = list(outer())
+    try:
+        risky([1])
+    except IndexError:
+        pass
+    shape = Shape(2)
+    return fib(3)
+
+
+main()
+"""
+
+
+def test_read_reel_tells_apart_what_looks_alike(tmp_path: Path) -> None:
+    """Rows that are one list, a list changed in place or replaced, False and 0, a dict's
+    keys moving, a generator resumed or never resumed, an exception leaving through finally,
+    a yield from ending, a decorated class and a closure's shared variable."""
+    (tmp_path / "narrated.py").write_text(NARRATED)
+    trace = record(tmp_path / "narrated.py")
+    reel = write_reel(trace, tmp_path / "narrated.reel.html", player="")
+    listing = run(str(reel), "--steps", "1-5000").stdout
+    changed = "\n".join(row[54:] for row in rows(listing))
+    for note in [
+        "dp=[[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]] (dp[0], dp[1], dp[2] and 1 more are",
+        "dp[0][1]=5, dp[1][1]=5, dp[2][1]=5 (dp[0], dp[1], dp[2] and 1 more are the same list)",
+        "a[:]=[1, 2, 3, 4, 5, 6]",
+        "b=[1, 2, 3, 4, 5, 6]",
+        "flags[0]=False",
+        "d[1] moved to the end",
+        "od.move_to_end(2)",
+        "len(big)=1001",
+        "resumes count, del stack[1] (in main)",
+        "yields 'a'",  # never resumed, so it stays a yield
+        "xs.append(0), leaves because of the exception",  # through the finally block
+        "runs the body of class Shape",
+        "__init__=<function Shape.__init__>",
+        "call go(k=3)",
+    ]:
+        assert note in changed, note
+    assert "returns 'a'" not in changed and "raises StopIteration" not in changed
+    assert "__module__" not in changed
+    assert any("call take(" in row and "del stack[0] (in main)" in row for row in rows(listing))
+    assert "(in fib)" not in changed  # calls shows once, for the running call
+    assert listing.count("calls=1") == 1
 
 
 LINES = """\
@@ -165,12 +402,236 @@ def outer(n):
 
 def test_read_reel_notices_a_reel_recorded_with_lines(tmp_path: Path) -> None:
     """--lines isn't in the trace, but a call starting mid-way or a run ending on a line
-    shows it."""
+    shows it; a call first seen mid-way shows its variables."""
     (tmp_path / "lines.py").write_text(LINES)
     for lines in [{2}, {1, 2}]:
         trace = record(tmp_path / "lines.py", "outer(3)", lines=lines)
         reel = write_reel(trace, tmp_path / "lines.reel.html", player="")
         assert "recorded with --lines" in run(str(reel)).stdout, lines
+    first = rows(run(str(reel), "--steps").stdout)[0]
+    assert "call helper(xs=[], k=0)" in first
+    trace = record(tmp_path / "lines.py", "outer(3)", lines={2})
+    reel = write_reel(trace, tmp_path / "lines.reel.html", player="")
+    assert "in helper, xs=[], k=0" in rows(run(str(reel), "--steps").stdout)[0]
+
+
+HIDDEN = {"t": "repr", "cls": "list", "v": f"(not shown: over {MAX_OBJECTS} objects)"}
+
+
+def test_read_reel_skips_objects_coming_into_view_past_the_cap(tmp_path: Path) -> None:
+    """Past the object cap an object is a placeholder at some steps and itself at others,
+    which is no change; a real change involving one still shows, with … for it, even as a
+    set's item or a dict's key."""
+
+    def state(ev: Event, line: int, heap: dict[int, Any]) -> State:
+        frame: Frame = {"fid": 1, "fn": "f", "line": line, "locals": {"xs": {"ref": 1}}}
+        frame["locals"].update({"d": {"ref": 3}, "s": {"ref": 5}})
+        return {"ev": ev, "line": line, "stack": [frame], "heap": heap}
+
+    xs = {"t": "seq", "cls": "list", "items": [{"ref": 2}]}
+    before = {"t": "seq", "cls": "set", "items": [{"ref": 6}]}
+    states = [
+        state(
+            "call",
+            1,
+            {1: xs, 2: HIDDEN, 3: {"t": "map", "cls": "dict", "items": []}, 5: before, 6: HIDDEN},
+        ),
+        state(
+            "line",
+            2,
+            {
+                1: xs,
+                2: {"t": "seq", "cls": "list", "items": [5]},
+                3: {"t": "map", "cls": "dict", "items": [[1, {"ref": 4}]]},
+                4: HIDDEN,
+                5: {"t": "seq", "cls": "set", "items": [{"ref": 6}, {"ref": 7}]},
+                6: HIDDEN,
+                7: HIDDEN,
+            },
+        ),
+    ]
+    source: Source = {"file": "f.py", "text": "def f(xs, d):\n    d[1] = []\n", "entry": "f()"}
+    trace: Trace = {"schema": 1, "language": "python", "source": source, "steps": encode(states)}
+    reel = write_reel(trace, tmp_path / "hidden.reel.html", player="")
+    second = rows(run(str(reel), "--steps").stdout)[1]
+    assert second[54:] == "d[1]=…, s |= {…}"
+
+
+def test_read_reel_reads_code_newer_than_its_python() -> None:
+    """A file this Python can't parse is read from its tokens, leaving strings and comments
+    out, and past where those fail, from its text."""
+    newer = (
+        "@deco\n"
+        "def f(a, b=g(1, c), *args, k: list[int] = [], **kw):\n"
+        '    yield "yield"  # yield\n'
+        "    h = lambda q, r=1: q\n"
+        "    return a +\n"
+    )
+    source = read_reel().Source(newer)
+    assert not source.parsed
+    assert source.parameters(1, "f") == source.parameters(2, "f") == {"a", "b", "args", "k", "kw"}
+    assert source.parameters(4, "<lambda>") == {"q", "r"}
+    assert source.yields_on(3, "") == 1 and not source.yields_on(4, "")
+    text = read_reel().Source("match = (\n")
+    assert not text.parsed and text.parameters(1, "f") is None
+    assert text.yields_on(3, "    got = yield i") and text.hands_over_on(4, "await job()")
+    assert not text.yields_on(5, "    return yield_count") and not text.yields_on(6, "s = 'yield'")
+
+
+FLOW = """\
+import asyncio
+from contextlib import suppress
+
+KEEP = []
+
+
+class Node:
+    def __init__(self, val, next=None):
+        self.val = val
+        self.next = next
+
+
+def counted(n):
+    for i in range(n):
+        yield i
+    return n
+
+
+async def ticks(n):
+    for i in range(n):
+        await asyncio.sleep(0)
+        yield i * 10
+
+
+async def consume():
+    got = [v async for v in ticks(2)]
+    lock = asyncio.Lock()
+    async with lock:
+        got.append(1)
+    return got
+
+
+def drop(d):
+    with suppress(KeyError): del d["x"]
+
+
+def closer():
+    try:
+        yield 1
+    finally:
+        print("closed")
+
+
+def two():
+    yield 1; yield 2
+
+
+def reverse(head):
+    prev, cur = None, head
+    while cur:
+        cur.next, prev, cur = prev, cur, cur.next
+    return prev
+
+
+def main():
+    out = [v for v in counted(2)]
+    for v in counted(2):
+        out.append(v)
+    squares = [x * x for x in range(3)]
+    drop({})
+    head = reverse(Node(1, Node(2)))
+    c = closer()
+    next(c)
+    c.close()
+    t = two()
+    KEEP.append(t)
+    next(t)
+    next(t)
+    k = 5
+    f, g = (lambda a: a + k), (lambda b: b + k)
+    f(1), g(2)
+    return asyncio.run(consume()), out, squares, head.val
+
+
+main()
+"""
+
+
+def test_read_reel_follows_loops_awaits_and_comprehensions(tmp_path: Path) -> None:
+    """The StopIteration that ends a loop, a yield from or an await is never told as raised,
+    a swallowed exception isn't one leaving, a comprehension's variables are its own, and
+    pointers into a list aren't called the same object."""
+    (tmp_path / "flow.py").write_text(FLOW)
+    reel = write_reel(record(tmp_path / "flow.py"), tmp_path / "flow.reel.html", player="")
+    changed = "\n".join(row[54:] for row in rows(run(str(reel), "--steps", "1-5000").stdout))
+    assert "StopIteration" not in changed and "StopAsyncIteration" not in changed
+    assert "waits" in changed and "yields 0" in changed and "yields 10" in changed
+    assert "raises KeyError" in changed and "leaves because" not in changed
+    assert "is closed" in changed and "yields 2" in changed
+    assert "call <lambda>(a=1)" in changed and "call <lambda>(b=2)" in changed
+    assert "del x" not in changed and "are the same" not in changed
+    if sys.version_info >= (3, 12):  # comprehensions run inside their function from 3.12
+        assert "x=2 (in the comprehension)" in changed
+    else:
+        assert "call <listcomp>()" in changed
+
+
+RISKY = """\
+def risky(xs):
+    try:
+        return xs[5]
+    finally:
+        xs.append(0)
+
+
+def outer():
+    try:
+        risky([1, 2])
+    except IndexError:
+        pass
+    return 1
+"""
+
+
+def test_read_reel_says_when_lines_hide_whether_an_exception_left(tmp_path: Path) -> None:
+    (tmp_path / "risky.py").write_text(RISKY)
+    trace = record(tmp_path / "risky.py", "outer()", lines={3, 5})
+    reel = write_reel(trace, tmp_path / "risky.reel.html", player="")
+    last = rows(run(str(reel), "--steps").stdout)[-2]
+    assert last.endswith("returns None, or leaves because of the exception")
+
+
+VALUES = """\
+from collections import deque
+
+
+def values():
+    q = deque([1, 2, 3])
+    q.appendleft(0)
+    q.popleft()
+    q.rotate(1)
+    fs = frozenset({1, 2})
+    a = []
+    a.append(a)
+    message = "bad\\r\\x1b[2Jrow"
+    pattern = "\\d"
+    raise ValueError(message)
+"""
+
+
+@pytest.mark.filterwarnings("ignore:invalid escape sequence")  # the "\d" it records
+def test_read_reel_writes_values_as_python_does_and_safely(tmp_path: Path) -> None:
+    """Deque moves, frozensets and lists holding themselves read as in Python, and control
+    characters in values or messages are written as escapes."""
+    (tmp_path / "values.py").write_text(VALUES)
+    reel = write_reel(record(tmp_path / "values.py", "values()"), tmp_path / "v.html", player="")
+    done = run(str(reel), "--steps")
+    assert not done.stderr  # not even the warning Python 3.12 gives for "\d"
+    changed = "\n".join(row[54:] for row in rows(done.stdout))  # not the code column
+    for note in ["q.appendleft(0)", "q.popleft()", "q.rotate(1)", "fs=frozenset({1, 2})"]:
+        assert note in changed, note
+    assert "a.append([[...]])" in changed and "\\r\\x1b[2Jrow" in changed
+    assert "\x1b" not in done.stdout and "\r" not in done.stdout
 
 
 def test_read_reel_reports_unwritable_output_and_odd_pages(tmp_path: Path, reel: Path) -> None:

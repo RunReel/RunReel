@@ -1,9 +1,11 @@
 [project]
 name = "runreel"
-version = "0.0.0"
+version = "0.1.0"
 description = "See what your AI actually wrote: turn any algorithm into an interactive step-through reel."
+readme = "README.md"
 authors = [{ name = "dsyz2007" }]
 license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = []
 keywords = ["algorithms", "data-structures", "visualization", "education", "tracing"]
@@ -19,6 +21,7 @@ classifiers = [
 
 [project.urls]
 Repository = "https://github.com/RunReel/RunReel"
+Issues = "https://github.com/RunReel/RunReel/issues"
 
 [project.scripts]
 runreel = "runreel.cli:main"

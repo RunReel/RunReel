@@ -238,7 +238,11 @@ def same_file(a: Path, b: Path) -> bool:
 def summary(trace: Trace, out: Path, timeout: float | None = None) -> str:
     """E.g. "reel: dijkstra.reel.html (29 KB) · 63 steps · result {0: 0, 1: 3}"."""
     steps = trace["steps"]
-    parts = [f"reel: {out} ({max(out.stat().st_size // 1024, 1)} KB)", f"{len(steps)} steps"]
+    count = len(steps)
+    parts = [
+        f"reel: {out} ({max(out.stat().st_size // 1024, 1)} KB)",
+        f"{count} step{'s' if count != 1 else ''}",
+    ]
     if trace.get("truncated"):
         parts[-1] += " (truncated: raise --max-steps to see more)"
     if "stopped" in trace:

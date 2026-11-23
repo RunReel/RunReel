@@ -268,6 +268,15 @@ def test_out_wont_overwrite_the_program_or_its_input(
     assert data.read_text() == "hi\n"
 
 
+def test_one_step_is_counted_in_the_singular(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    script = tmp_path / "loop.py"
+    script.write_text("n = 0\nwhile n < 100:\n    n += 1\n")
+    assert main(["run", str(script), "--max-steps", "1"]) == 0
+    assert " · 1 step (truncated" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize(
     ("text", "message"),
     [

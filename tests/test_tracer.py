@@ -397,6 +397,19 @@ def test_without_input_file_descriptor_0_is_empty_rather_than_the_terminal(tmp_p
     assert left == b"typed\n"
 
 
+def test_bytes_written_to_stdout_buffer_are_kept_with_the_printed_text(tmp_path: Path) -> None:
+    text = (
+        "import sys\n"
+        "sys.stdout.write('total')\n"
+        "e = 'é'.encode()\n"
+        "sys.stdout.buffer.write(b' = 7' + e[:1])  # a character split between two writes\n"
+        "sys.stdout.buffer.write(e[1:] + b'\\n')\n"
+        "sys.stdout.buffer.flush()\n"
+    )
+    trace = record(program(tmp_path, text))
+    assert "".join(printed for _, printed in trace["stdout"]) == "total = 7é\n"
+
+
 def test_recording_the_same_program_twice_gives_the_same_trace(tmp_path: Path) -> None:
     # A lambda and a generator kept in variables: their printed forms would otherwise carry
     # memory addresses, which change from run to run.

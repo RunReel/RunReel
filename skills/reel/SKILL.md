@@ -50,8 +50,8 @@ runreel run --out app.reel.html app.py -- --size 5 --verbose
 ```
 
 - The file runs as `__main__`, main block included, and all of it is recorded. If it calls the function more than once, tell the user which steps hold the first call, from the listing's `call` and `returns` notes.
-- `--stdin FILE` becomes the program's `sys.stdin`. Code that reads `open(0)` or `os.read(0, ...)` also needs the file on runreel's own input: `runreel run solution.py --stdin input.txt < input.txt`.
-- Put the program's own arguments last, after `--`, and runreel's options before the file, as above. On Python 3.10 and 3.11, an option between the file and `--` makes runreel refuse the program's arguments.
+- `--stdin FILE` becomes the program's standard input, also for code that reads `open(0)` or `os.read(0, ...)`.
+- Put the program's own arguments last, after `--`.
 
 Only the given file's own code is recorded: imported files and libraries run unrecorded. To watch a function from another file, record that file. For code in another language, say runreel runs only Python, and offer a translation only as a labelled stand-in.
 
@@ -145,7 +145,7 @@ If the user can't open files on this machine, as with a cloud agent or over SSH,
 | `... exited while loading` or `... failed while loading` | With `--call`, top-level code exited or raised while loading. If it and the main block only compute, record the whole script; if not, ask to record a copy of the function. Don't move the code under a main guard, as the exited-while-loading message suggests, without asking. |
 | `can't read X` with `--call`, where X isn't the file | Top-level code failed to open X while loading. Run runreel from the folder the program expects, or ask the user for the file. |
 | `ModuleNotFoundError` | The code imports a package that runreel's environment doesn't have. See step 1. |
-| `... doesn't compile: ...` | A syntax error in the file, or a `--call` value that isn't one expression. `U+FEFF` on line 1 is a byte order mark (save as UTF-8 without one); on a later line, an invisible character to delete. |
+| `... doesn't compile: ...` | A syntax error in the file, or a `--call` value that isn't one expression. `U+FEFF` is an invisible character to delete. |
 | `runreel: error: unrecognized arguments: ...` | A program option before `--`, or a misspelt option. Put the program's arguments after `--`. |
 
 [references/troubleshooting.md](references/troubleshooting.md) covers every message, the exit codes and the limits.

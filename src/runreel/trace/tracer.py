@@ -8,23 +8,28 @@ and deadline.py stops a program that runs too long.
 
 from __future__ import annotations
 
+import codecs
 import contextlib
 import inspect
 import io
 import os
 import sys
+import tempfile
 import threading
 import types
 from collections.abc import Callable, Collection, Iterator, Sequence
 from pathlib import Path
 from types import FrameType
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from runreel.trace.codec import encode
 from runreel.trace.deadline import Deadline, TimeUp
 from runreel.trace.events import Backend, open_source
 from runreel.trace.model import Event, Frame, State, Trace, Value
 from runreel.trace.serialize import Serializer, without_addresses
+
+if TYPE_CHECKING:
+    from _typeshed import ReadableBuffer
 
 MAX_STEPS = 5000
 TIMEOUT = 60.0  # seconds
@@ -49,8 +54,9 @@ def record(
     With call, the file is loaded as a module (its __main__ block doesn't run) and only the
     call, such as "dijkstra(G, 0)", is traced. Without it, the file runs as a script. With
     lines, only states on those lines are kept. After max_steps states the trace is marked
-    truncated and the program carries on untraced. The program reads stdin as its input, never
-    the terminal, so it can't stop and wait; sys.stdin.buffer works for fast reads.
+    truncated and the program carries on untraced. The program's input is stdin, never the
+    terminal, so it can't stop and wait: sys.stdin and its .buffer read it, and so do open(0)
+    and os.read(0, n). Bytes it writes to sys.stdout.buffer are kept with its printed text.
 
     The file runs as `python path *args` would run it: sys.argv is [path, *args], and the
     file's folder comes first on sys.path, so it can import the files next to it. Both are put
@@ -319,13 +325,32 @@ class _Recorder:
 
 @contextlib.contextmanager
 def _input(text: str) -> Iterator[None]:
-    """Give the program text as its standard input, with a .buffer like the real one."""
+    """Give the program text as its standard input: as sys.stdin, with a .buffer like the real
+    one, and as file descriptor 0 itself, which open(0), os.read(0, n) and sys.stdin.fileno()
+    use. Afterwards descriptor 0 is runreel's own again."""
     saved = sys.stdin
-    sys.stdin = io.TextIOWrapper(io.BytesIO(text.encode()), encoding="utf-8")
     try:
-        yield
-    finally:
-        sys.stdin = saved
+        held: int | None = os.dup(0)
+    except OSError:  # runreel itself was started without a standard input
+        held = None
+    with tempfile.TemporaryFile() as data:
+        data.write(text.encode())
+        data.seek(0)
+        os.dup2(data.fileno(), 0)
+        given = open(0, encoding="utf-8", closefd=False)  # noqa: SIM115 (closed below)
+        sys.stdin = given
+        try:
+            yield
+        finally:
+            sys.stdin = saved
+            with contextlib.suppress(ValueError, OSError):  # the program may have detached it
+                given.close()
+            if held is None:
+                with contextlib.suppress(OSError):
+                    os.close(0)
+            else:
+                os.dup2(held, 0)
+                os.close(held)
 
 
 def _hidden_at_top_level(name: str, value: object) -> bool:
@@ -346,13 +371,14 @@ def _describe(error: BaseException) -> str:
 class _Output(io.TextIOBase):
     """Captures printed text as [step, text] pairs, joining writes made during the same step.
     Past MAX_OUTPUT characters, printed text is only counted, so heavy printing can't swell the
-    trace or use up memory."""
+    trace or use up memory. Bytes written to its .buffer are kept as text too."""
 
     def __init__(self, recorder: _Recorder) -> None:
         self.recorder = recorder
         self.chunks: list[list[Any]] = []
         self.kept = 0
         self.dropped = 0
+        self.buffer = _Bytes(self)
 
     def writable(self) -> bool:
         return True
@@ -370,7 +396,9 @@ class _Output(io.TextIOBase):
         return n
 
     def finish(self) -> None:
-        """Note how much printed text wasn't kept, if any."""
+        """Keep what's left of a character half-written to .buffer, then note how much printed
+        text wasn't kept, if any."""
+        self.buffer.finish()
         if self.dropped:
             self._keep(f"\n… {self.dropped:,} more characters were printed but not kept\n")
 
@@ -380,3 +408,28 @@ class _Output(io.TextIOBase):
             self.chunks[-1][1] += text
         else:
             self.chunks.append([step, text])
+
+
+class _Bytes(io.BufferedIOBase):
+    """The captured output's .buffer, for the contest idiom sys.stdout.buffer.write(...): bytes
+    are decoded as UTF-8 and kept with the printed text, and a character split between two
+    writes is joined up again."""
+
+    def __init__(self, text: _Output) -> None:
+        self.text = text
+        self.decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, data: ReadableBuffer, /) -> int:
+        chunk = bytes(data)
+        decoded = self.decoder.decode(chunk)
+        if decoded:
+            self.text.write(decoded)
+        return len(chunk)
+
+    def finish(self) -> None:
+        rest = self.decoder.decode(b"", final=True)
+        if rest:
+            self.text.write(rest)

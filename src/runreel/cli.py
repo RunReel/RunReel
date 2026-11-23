@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 import sys
 import webbrowser
 from collections.abc import Sequence
@@ -32,9 +33,12 @@ CALL_HINT = (
 
 
 def build_parser() -> argparse.ArgumentParser:
+    # Options must be spelt out in full: otherwise a program's own option, such as --n 5, would
+    # pass for an abbreviation of one of runreel's (--no-mark).
     parser = argparse.ArgumentParser(
         prog="runreel",
         description="Turn an algorithm into an interactive step-through reel.",
+        allow_abbrev=False,
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command", metavar="COMMAND")
@@ -43,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="run a Python file and write its reel",
         description=RUN_HELP,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False,
     )
     run.add_argument("file", type=Path, help="Python file to run")
     run.add_argument("args", nargs="*", metavar="ARGS", help="arguments for the program, after --")
@@ -120,15 +125,38 @@ def seconds(text: str) -> float:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    words = list(sys.argv[1:] if argv is None else argv)
+    # Everything after the first -- is the program's, so it's split off before parsing. Left to
+    # argparse, Python 3.10 and 3.11 refuse it when an option comes between FILE and --.
+    program: list[str] = []
+    if "--" in words:
+        cut = words.index("--")
+        words, program = words[:cut], words[cut + 1 :]
+    args, unknown = parser.parse_known_args(words)
+    if unknown:
+        tip = hint(words, unknown, program, args)
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}{tip}")
     if args.command is None:
         parser.print_help()
         return 0
+    args.args = [*args.args, *program]
     try:
         return run(args)
     except KeyboardInterrupt:  # Ctrl+C before or after the run, e.g. while writing the reel
         print("runreel: interrupted", file=sys.stderr)
         return 130
+
+
+def hint(words: list[str], unknown: list[str], program: list[str], args: argparse.Namespace) -> str:
+    """How to give unrecognized arguments to the program instead: the same command with -- put
+    before the first of them, when that comes after FILE."""
+    if args.command != "run":
+        return ""
+    at = words.index(unknown[0])
+    if not any(Path(word) == args.file for word in words[:at]):
+        return "; arguments for the program go after FILE and --"
+    example = shlex.join(["runreel", *words[:at], "--", *words[at:], *program])
+    return f"; if they're for the program, put them after --: {example}"
 
 
 def run(args: argparse.Namespace) -> int:

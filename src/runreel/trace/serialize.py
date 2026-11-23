@@ -322,13 +322,15 @@ def _fields(x: Any) -> tuple[list[str], list[object]]:
 
 def _through(cls: type) -> type | None:
     """The built-in container class to read cls through if a Python class in its hierarchy
-    redefines how it's read; None if its reading is all built in."""
+    redefines how it's read; None if its reading is all built in, or if cls isn't a built-in
+    container at all, such as a linked list class with its own __len__ and __iter__, whose
+    objects are read through their fields."""
     for klass in cls.__mro__:
         if klass in _CONTAINERS:
             return None
         defined = vars(klass)
         if any(isinstance(defined.get(name), types.FunctionType) for name in _READERS):
-            return next(base for base in cls.__mro__ if base in _CONTAINERS)
+            return next((base for base in cls.__mro__ if base in _CONTAINERS), None)
     return None
 
 

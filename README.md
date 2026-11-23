@@ -56,7 +56,7 @@ mkdir -p ~/.claude/skills
 cp -r skills/reel ~/.claude/skills/
 ```
 
-Then ask for a reel, say "show me this BFS running on a small graph". The agent runs the `runreel` command. Until RunReel is on PyPI, tell it where your clone is and it will run it from there through uv. The skill has the agent read code before running it, and ask you first when the code came from somewhere else or does more than compute.
+Then ask for a reel, say "show me this BFS running on a small graph". The agent runs the `runreel` command. If that isn't installed, the agent asks you first, then installs it from PyPI, or runs it from your clone if you have one. The skill has the agent read code before running it, and ask you first when the code came from somewhere else or does more than compute.
 
 ## What works right now
 

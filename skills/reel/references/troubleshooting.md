@@ -73,7 +73,7 @@ runreel's own messages start with `runreel:`. A wrong command line prints a `usa
 
 ## Working from a RunReel clone
 
-Before RunReel is installed from PyPI, a clone of its repository can run it. Setting one up downloads dependencies and runs the repository's Makefile and npm scripts, so ask the user first, and only use a clone they trust. It needs make, uv, Node.js 22 with npm, and network access.
+If runreel isn't installed, a clone of its repository can run it. Setting one up downloads dependencies and runs the repository's Makefile and npm scripts, so ask the user first, and only use a clone they trust. It needs make, uv, Node.js 22 with npm, and network access.
 
 In the clone's root folder:
 

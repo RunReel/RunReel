@@ -6,36 +6,46 @@ RunReel runs a piece of Python, records every step, and turns the run into a ree
 
 I started building it because I kept getting code from AI tools that looked right and was only almost right. Reading it line by line was slow, and the tests only told me pass or fail. Watching it run is quicker. You can see the exact step where it goes wrong.
 
-**This is an early preview.** It isn't on PyPI yet and the command-line options will still change. If you try it anyway, I'd love to hear what broke.
+**This is an early preview.** The command-line options will still change. If you try it, I'd love to hear what broke.
 
 ## Try it
 
-You'll need [uv](https://docs.astral.sh/uv/) and Node 22.
+It needs Python 3.10 or newer. Install it with [uv](https://docs.astral.sh/uv/) or [pipx](https://pipx.pypa.io/):
+
+```sh
+uv tool install runreel    # or: pipx install runreel
+```
+
+Then give it a file and the call to make:
+
+```sh
+runreel run sort.py --call "bubble([5, 2, 9, 1])" --open
+```
+
+That writes `sort.reel.html` next to `sort.py` and opens it. Space plays and pauses, the arrow keys (or J and K) step, and you can drag the slider to jump around. Add `#step=40` to the address to link someone straight to a step.
+
+The repository has examples to try, like Dijkstra's shortest paths:
 
 ```sh
 git clone https://github.com/RunReel/RunReel.git
 cd RunReel
-make setup
-make build
-uv run runreel run examples/dijkstra.py --call "dijkstra(G, 0)" --open
+runreel run examples/dijkstra.py --call "dijkstra(G, 0)" --open
 ```
-
-That writes `examples/dijkstra.reel.html` and opens it. Space plays and pauses, the arrow keys (or J and K) step, and you can drag the slider to jump around. Add `#step=40` to the address to link someone straight to a step.
 
 Some other ways to run it:
 
 ```sh
 # a whole script, reading its input from a file like a contest judge would
-uv run runreel run solution.py --stdin input.txt
+runreel run solution.py --stdin input.txt
 
 # only record lines 12 to 30, e.g. the loop you actually care about
-uv run runreel run sort.py --call "bubble([5, 2, 9, 1])" --lines 12-30
+runreel run sort.py --call "bubble([5, 2, 9, 1])" --lines 12-30
 
 # anything after -- goes to the program, as if you'd run python app.py --n 5
-uv run runreel run app.py -- --n 5
+runreel run app.py -- --n 5
 ```
 
-`uv run runreel run --help` lists everything else.
+`runreel run --help` lists everything else.
 
 ## Use it from your coding agent
 
@@ -87,6 +97,16 @@ RunReel runs your program for real. It's no different from typing `python yourfi
 
 It's early and I'm still moving things around, so please open an issue before starting on anything big. The most useful thing right now is a bug report with a small program that shows the problem.
 
+To work on it from a clone, you'll need [uv](https://docs.astral.sh/uv/) and Node 22:
+
+```sh
+make setup    # install the Python and player dependencies
+make build    # bundle the player into the package
+make check    # lint, type-check and run every test
+```
+
+Then `uv run runreel ...` runs your copy.
+
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/RunReel/RunReel/blob/main/LICENSE).

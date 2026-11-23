@@ -365,6 +365,38 @@ def test_without_input_reading_fails_instead_of_waiting(tmp_path: Path) -> None:
     assert trace["error"] == "EOFError: EOF when reading a line"
 
 
+def test_the_input_is_on_file_descriptor_0_too(tmp_path: Path) -> None:
+    # Contest idioms that read file descriptor 0 itself rather than through sys.stdin.
+    text = (
+        "import os, sys\n"
+        "fd = sys.stdin.fileno()\n"
+        "head = os.read(0, 2).decode()\n"
+        "total = int(head) + sum(map(int, open(0).read().split()))\n"
+    )
+    trace = record(program(tmp_path, text), stdin="3 4\n5\n")
+    assert states(trace)[-1]["stack"][0]["locals"] == {"fd": 0, "head": "3 ", "total": 12}
+
+
+def test_without_input_file_descriptor_0_is_empty_rather_than_the_terminal(tmp_path: Path) -> None:
+    # A pipe with something typed into it stands in for the terminal: the program mustn't
+    # read it, and afterwards file descriptor 0 is runreel's own again. The pipe's other end is
+    # closed, so a read that finds it empty ends instead of waiting.
+    read, write = os.pipe()
+    os.write(write, b"typed\n")
+    os.close(write)
+    held = os.dup(0)
+    os.dup2(read, 0)
+    try:
+        trace = record(program(tmp_path, "import os\ngot = os.read(0, 10).decode()\n"))
+        left = os.read(0, 10)
+    finally:
+        os.dup2(held, 0)
+        os.close(held)
+        os.close(read)
+    assert states(trace)[-1]["stack"][0]["locals"] == {"got": ""}
+    assert left == b"typed\n"
+
+
 def test_recording_the_same_program_twice_gives_the_same_trace(tmp_path: Path) -> None:
     # A lambda and a generator kept in variables: their printed forms would otherwise carry
     # memory addresses, which change from run to run.

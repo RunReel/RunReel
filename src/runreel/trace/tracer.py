@@ -13,6 +13,7 @@ import inspect
 import io
 import os
 import sys
+import tempfile
 import threading
 import types
 from collections.abc import Callable, Collection, Iterator, Sequence
@@ -49,8 +50,9 @@ def record(
     With call, the file is loaded as a module (its __main__ block doesn't run) and only the
     call, such as "dijkstra(G, 0)", is traced. Without it, the file runs as a script. With
     lines, only states on those lines are kept. After max_steps states the trace is marked
-    truncated and the program carries on untraced. The program reads stdin as its input, never
-    the terminal, so it can't stop and wait; sys.stdin.buffer works for fast reads.
+    truncated and the program carries on untraced. The program's input is stdin, never the
+    terminal, so it can't stop and wait: sys.stdin and its .buffer read it, and so do open(0)
+    and os.read(0, n).
 
     The file runs as `python path *args` would run it: sys.argv is [path, *args], and the
     file's folder comes first on sys.path, so it can import the files next to it. Both are put
@@ -319,13 +321,32 @@ class _Recorder:
 
 @contextlib.contextmanager
 def _input(text: str) -> Iterator[None]:
-    """Give the program text as its standard input, with a .buffer like the real one."""
+    """Give the program text as its standard input: as sys.stdin, with a .buffer like the real
+    one, and as file descriptor 0 itself, which open(0), os.read(0, n) and sys.stdin.fileno()
+    use. Afterwards descriptor 0 is runreel's own again."""
     saved = sys.stdin
-    sys.stdin = io.TextIOWrapper(io.BytesIO(text.encode()), encoding="utf-8")
     try:
-        yield
-    finally:
-        sys.stdin = saved
+        held: int | None = os.dup(0)
+    except OSError:  # runreel itself was started without a standard input
+        held = None
+    with tempfile.TemporaryFile() as data:
+        data.write(text.encode())
+        data.seek(0)
+        os.dup2(data.fileno(), 0)
+        given = open(0, encoding="utf-8", closefd=False)  # noqa: SIM115 (closed below)
+        sys.stdin = given
+        try:
+            yield
+        finally:
+            sys.stdin = saved
+            with contextlib.suppress(ValueError, OSError):  # the program may have detached it
+                given.close()
+            if held is None:
+                with contextlib.suppress(OSError):
+                    os.close(0)
+            else:
+                os.dup2(held, 0)
+                os.close(held)
 
 
 def _hidden_at_top_level(name: str, value: object) -> bool:

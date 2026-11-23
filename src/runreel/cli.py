@@ -163,6 +163,9 @@ def run(args: argparse.Namespace) -> int:
     """Record the file, write the reel and print a one-line summary that agents can read."""
     file: Path = args.file
     out: Path = args.out or file.with_suffix(".reel.html")
+    for kept, what in ((file, "the program itself"), (args.stdin, "the program's input")):
+        if kept is not None and same_file(out, kept):
+            return fail(f"--out {out} would overwrite {what}; give the reel another name")
     target = out.absolute()  # fixed now, in case the program changes the working directory
     stdin = ""
     if args.stdin:
@@ -222,6 +225,14 @@ def run(args: argparse.Namespace) -> int:
 def fail(message: str) -> int:
     print(f"runreel: {message}", file=sys.stderr)
     return 1
+
+
+def same_file(a: Path, b: Path) -> bool:
+    """Whether a and b name the same existing file, however each is spelt."""
+    try:
+        return a.samefile(b)
+    except OSError:  # one of them doesn't exist
+        return False
 
 
 def summary(trace: Trace, out: Path, timeout: float | None = None) -> str:

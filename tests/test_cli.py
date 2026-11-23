@@ -243,6 +243,41 @@ def test_open_shows_the_reel_in_the_browser(
 
 
 @pytest.mark.parametrize(
+    ("given", "what"),
+    [
+        ("p.py", "the program itself"),
+        ("./p.py", "the program itself"),  # the same file, spelt another way
+        ("in.txt", "the program's input"),
+    ],
+)
+def test_out_wont_overwrite_the_program_or_its_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    given: str,
+    what: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    script = tmp_path / "p.py"
+    script.write_text("x = input()\n")
+    data = tmp_path / "in.txt"
+    data.write_text("hi\n")
+    assert main(["run", str(script), "--stdin", str(data), "--out", given]) == 1
+    assert f"--out {Path(given)} would overwrite {what}" in capsys.readouterr().err
+    assert script.read_text() == "x = input()\n"
+    assert data.read_text() == "hi\n"
+
+
+def test_one_step_is_counted_in_the_singular(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    script = tmp_path / "loop.py"
+    script.write_text("n = 0\nwhile n < 100:\n    n += 1\n")
+    assert main(["run", str(script), "--max-steps", "1"]) == 0
+    assert " · 1 step (truncated" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
     ("text", "message"),
     [
         (None, "can't read"),

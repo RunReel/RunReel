@@ -163,6 +163,9 @@ def run(args: argparse.Namespace) -> int:
     """Record the file, write the reel and print a one-line summary that agents can read."""
     file: Path = args.file
     out: Path = args.out or file.with_suffix(".reel.html")
+    for kept, what in ((file, "the program itself"), (args.stdin, "the program's input")):
+        if kept is not None and same_file(out, kept):
+            return fail(f"--out {out} would overwrite {what}; give the reel another name")
     target = out.absolute()  # fixed now, in case the program changes the working directory
     stdin = ""
     if args.stdin:
@@ -224,10 +227,22 @@ def fail(message: str) -> int:
     return 1
 
 
+def same_file(a: Path, b: Path) -> bool:
+    """Whether a and b name the same existing file, however each is spelt."""
+    try:
+        return a.samefile(b)
+    except OSError:  # one of them doesn't exist
+        return False
+
+
 def summary(trace: Trace, out: Path, timeout: float | None = None) -> str:
     """E.g. "reel: dijkstra.reel.html (29 KB) · 63 steps · result {0: 0, 1: 3}"."""
     steps = trace["steps"]
-    parts = [f"reel: {out} ({max(out.stat().st_size // 1024, 1)} KB)", f"{len(steps)} steps"]
+    count = len(steps)
+    parts = [
+        f"reel: {out} ({max(out.stat().st_size // 1024, 1)} KB)",
+        f"{count} step{'s' if count != 1 else ''}",
+    ]
     if trace.get("truncated"):
         parts[-1] += " (truncated: raise --max-steps to see more)"
     if "stopped" in trace:

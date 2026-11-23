@@ -327,6 +327,16 @@ def test_records_an_exception(tmp_path: Path) -> None:
     assert next(s for s in states(trace) if s["ev"] == "exception")["exc"] == trace["error"]
 
 
+def test_a_file_saved_with_a_byte_order_mark_runs(tmp_path: Path) -> None:
+    # Some Windows editors start UTF-8 files with a byte order mark, which Python accepts.
+    path = tmp_path / "bom.py"
+    path.write_bytes("x = 1\nprint(x)\n".encode("utf-8-sig"))
+    trace = record(path)
+    assert "error" not in trace
+    assert trace["source"]["text"] == "x = 1\nprint(x)\n"
+    assert [printed for _, printed in trace["stdout"]] == ["1\n"]
+
+
 def test_captures_printed_text_with_its_step(tmp_path: Path) -> None:
     path = program(tmp_path, "def f():\n    x = 1\n    print('a', x)\n    print('b')\n")
     trace = record(path, "f()")

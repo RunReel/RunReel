@@ -75,7 +75,7 @@ def record(
     same steps, so this only matters for testing and for working around a problem.
     """
     file = Path(path).resolve()
-    text = file.read_text(encoding="utf-8")
+    text = file.read_text(encoding="utf-8-sig")  # drops a byte order mark, as Python itself does
     code = compile(text, str(file), "exec")
     name = "__main__" if call is None else "__runreel__"
     module = types.ModuleType(name)

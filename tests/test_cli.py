@@ -118,12 +118,39 @@ def test_a_program_that_changes_folder_still_gets_its_reel_next_to_it(
     assert "reel: moves.reel.html" in capsys.readouterr().out
 
 
-def test_arguments_after_a_double_dash_go_to_the_program(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("words", "program_gets"),
+    [
+        (["FILE", "--", "--n", "5"], ["--n", "5"]),
+        # An option between FILE and --: before Python 3.12, argparse refused what followed.
+        (["FILE", "--max-steps", "50", "--", "--n", "5"], ["--n", "5"]),
+        (["--max-steps", "50", "FILE", "--", "--n", "5"], ["--n", "5"]),
+        (["FILE", "x", "--", "y"], ["x", "y"]),
+        (["FILE", "--", "a", "--", "b"], ["a", "--", "b"]),  # only the first -- is runreel's
+    ],
+)
+def test_arguments_after_a_double_dash_go_to_the_program(
+    tmp_path: Path, words: list[str], program_gets: list[str]
+) -> None:
     script = tmp_path / "args.py"
     script.write_text("import sys\nprint(sys.argv[1:])\n")
-    assert main(["run", str(script), "--", "--n", "5"]) == 0
+    assert main(["run", *(str(script) if word == "FILE" else word for word in words)]) == 0
     stdout = embedded_trace(tmp_path / "args.reel.html")["stdout"]
-    assert isinstance(stdout, list) and [text for _, text in stdout] == ["['--n', '5']\n"]
+    assert isinstance(stdout, list) and [text for _, text in stdout] == [f"{program_gets}\n"]
+
+
+def test_a_program_option_before_the_double_dash_is_refused_with_a_hint(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    script = tmp_path / "args.py"
+    script.write_text("import sys\nprint(sys.argv[1:])\n")
+    with pytest.raises(SystemExit) as exc:
+        main(["run", str(script), "--n", "5"])  # once taken for --no-mark, as an abbreviation
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "unrecognized arguments: --n" in err
+    assert f"put them after --: runreel run {script} -- --n 5\n" in err
+    assert not script.with_suffix(".reel.html").exists()
 
 
 def test_truncation_is_reported(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -216,6 +243,41 @@ def test_open_shows_the_reel_in_the_browser(
 
 
 @pytest.mark.parametrize(
+    ("given", "what"),
+    [
+        ("p.py", "the program itself"),
+        ("./p.py", "the program itself"),  # the same file, spelt another way
+        ("in.txt", "the program's input"),
+    ],
+)
+def test_out_wont_overwrite_the_program_or_its_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    given: str,
+    what: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    script = tmp_path / "p.py"
+    script.write_text("x = input()\n")
+    data = tmp_path / "in.txt"
+    data.write_text("hi\n")
+    assert main(["run", str(script), "--stdin", str(data), "--out", given]) == 1
+    assert f"--out {Path(given)} would overwrite {what}" in capsys.readouterr().err
+    assert script.read_text() == "x = input()\n"
+    assert data.read_text() == "hi\n"
+
+
+def test_one_step_is_counted_in_the_singular(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    script = tmp_path / "loop.py"
+    script.write_text("n = 0\nwhile n < 100:\n    n += 1\n")
+    assert main(["run", str(script), "--max-steps", "1"]) == 0
+    assert " · 1 step (truncated" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
     ("text", "message"),
     [
         (None, "can't read"),
@@ -296,6 +358,7 @@ def test_stdin_that_cant_be_read_is_named_in_the_error(
         ["--timeout", "-1"],
         ["--timeout", "soon"],
         ["--timeout", "nan"],
+        ["--max", "5"],  # options are spelt out in full, so a program's can't pass for one
     ],
 )
 def test_bad_arguments_exit_with_2(tmp_path: Path, args: list[str]) -> None:

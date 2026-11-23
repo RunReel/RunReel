@@ -225,6 +225,32 @@ def test_recording_runs_none_of_the_programs_code(tmp_path: Path, backend: Backe
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
+def test_classes_with_their_own_len_or_iter_are_recorded(tmp_path: Path, backend: Backend) -> None:
+    """A linked list class with its own __len__ and __iter__ is read through its fields,
+    never by calling them; it used to end the run with StopIteration after two steps. So
+    is an object made through a generic alias, which keeps the alias in __orig_class__."""
+    path = program(
+        tmp_path,
+        "from typing import Generic, TypeVar\n\nT = TypeVar('T')\n\n"
+        "class Node:\n    def __init__(self, val, next=None):\n"
+        "        self.val = val\n        self.next = next\n\n"
+        "class LinkedList:\n    def __init__(self):\n        self.head = None\n\n"
+        "    def push(self, val):\n        self.head = Node(val, self.head)\n\n"
+        "    def __len__(self):\n        raise RuntimeError('len ran')\n\n"
+        "    def __iter__(self):\n        raise RuntimeError('iter ran')\n\n"
+        "    def keys(self):\n        raise RuntimeError('keys ran')\n\n"
+        "class Box(Generic[T]):\n    def __init__(self, item):\n        self.item = item\n\n"
+        "def demo():\n    items = LinkedList()\n    items.push(1)\n    items.push(2)\n"
+        "    box = Box[int](items.head.val)\n    return box.item\n",
+    )
+    trace = record(path, "demo()", backend=backend)
+    assert trace["result"] == 2 and "error" not in trace
+    lists = [obj for s in states(trace) for obj in s["heap"].values() if obj["cls"] == "LinkedList"]
+    assert lists and all(obj["t"] == "obj" for obj in lists)
+    assert any("head" in obj.get("fields", {}) for obj in lists)  # read through its fields
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_what_the_program_changes_in_the_interpreter_is_put_back(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: Backend
 ) -> None:
@@ -301,6 +327,16 @@ def test_records_an_exception(tmp_path: Path) -> None:
     assert next(s for s in states(trace) if s["ev"] == "exception")["exc"] == trace["error"]
 
 
+def test_a_file_saved_with_a_byte_order_mark_runs(tmp_path: Path) -> None:
+    # Some Windows editors start UTF-8 files with a byte order mark, which Python accepts.
+    path = tmp_path / "bom.py"
+    path.write_bytes("x = 1\nprint(x)\n".encode("utf-8-sig"))
+    trace = record(path)
+    assert "error" not in trace
+    assert trace["source"]["text"] == "x = 1\nprint(x)\n"
+    assert [printed for _, printed in trace["stdout"]] == ["1\n"]
+
+
 def test_captures_printed_text_with_its_step(tmp_path: Path) -> None:
     path = program(tmp_path, "def f():\n    x = 1\n    print('a', x)\n    print('b')\n")
     trace = record(path, "f()")
@@ -337,6 +373,51 @@ def test_the_program_reads_the_given_input(tmp_path: Path) -> None:
 def test_without_input_reading_fails_instead_of_waiting(tmp_path: Path) -> None:
     trace = record(program(tmp_path, "x = input()\n"))
     assert trace["error"] == "EOFError: EOF when reading a line"
+
+
+def test_the_input_is_on_file_descriptor_0_too(tmp_path: Path) -> None:
+    # Contest idioms that read file descriptor 0 itself rather than through sys.stdin.
+    text = (
+        "import os, sys\n"
+        "fd = sys.stdin.fileno()\n"
+        "head = os.read(0, 2).decode()\n"
+        "total = int(head) + sum(map(int, open(0).read().split()))\n"
+    )
+    trace = record(program(tmp_path, text), stdin="3 4\n5\n")
+    assert states(trace)[-1]["stack"][0]["locals"] == {"fd": 0, "head": "3 ", "total": 12}
+
+
+def test_without_input_file_descriptor_0_is_empty_rather_than_the_terminal(tmp_path: Path) -> None:
+    # A pipe with something typed into it stands in for the terminal: the program mustn't
+    # read it, and afterwards file descriptor 0 is runreel's own again. The pipe's other end is
+    # closed, so a read that finds it empty ends instead of waiting.
+    read, write = os.pipe()
+    os.write(write, b"typed\n")
+    os.close(write)
+    held = os.dup(0)
+    os.dup2(read, 0)
+    try:
+        trace = record(program(tmp_path, "import os\ngot = os.read(0, 10).decode()\n"))
+        left = os.read(0, 10)
+    finally:
+        os.dup2(held, 0)
+        os.close(held)
+        os.close(read)
+    assert states(trace)[-1]["stack"][0]["locals"] == {"got": ""}
+    assert left == b"typed\n"
+
+
+def test_bytes_written_to_stdout_buffer_are_kept_with_the_printed_text(tmp_path: Path) -> None:
+    text = (
+        "import sys\n"
+        "sys.stdout.write('total')\n"
+        "e = 'é'.encode()\n"
+        "sys.stdout.buffer.write(b' = 7' + e[:1])  # a character split between two writes\n"
+        "sys.stdout.buffer.write(e[1:] + b'\\n')\n"
+        "sys.stdout.buffer.flush()\n"
+    )
+    trace = record(program(tmp_path, text))
+    assert "".join(printed for _, printed in trace["stdout"]) == "total = 7é\n"
 
 
 def test_recording_the_same_program_twice_gives_the_same_trace(tmp_path: Path) -> None:

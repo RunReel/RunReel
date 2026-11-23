@@ -6,7 +6,7 @@ import math
 import sys
 from collections import deque, namedtuple
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 import pytest
 from hypothesis import given
@@ -446,6 +446,43 @@ def test_reading_an_object_runs_none_of_its_own_code() -> None:
     assert (first[1]["items"], second[1]["items"]) == ([1, 2], [1, 2, 3])
     assert second[2]["items"] == [["a", 1], ["b", 2]]
     assert first[3]["fields"] == first[4]["fields"] == {"size": 3}
+
+
+def test_a_plain_class_with_its_own_len_or_iter_is_read_through_its_fields() -> None:
+    """A class that defines __len__, __iter__, keys or values without being a built-in
+    container, such as a linked list or a graph class, is an object like any other. Looking
+    for a container to read it through used to raise StopIteration into the program."""
+
+    class Stack:
+        def __init__(self) -> None:
+            self.items = [1, 2]
+
+        def __len__(self) -> int:
+            raise RuntimeError
+
+        def __iter__(self) -> Iterator[int]:
+            raise RuntimeError
+
+    class Graph:
+        def __init__(self) -> None:
+            self.adj = {1: [2]}
+
+        def keys(self) -> Any:
+            raise RuntimeError
+
+        def values(self) -> Any:
+            raise RuntimeError
+
+    item = TypeVar("item")
+
+    class Box(Generic[item]):
+        pass
+
+    values, heap = snapshot(Stack(), Graph(), Box[int]())  # Box[int]() keeps its alias
+    stack, graph, box = (heap[v["ref"]] for v in values if isinstance(v, dict))
+    assert stack["t"] == graph["t"] == box["t"] == "obj"
+    assert set(stack["fields"]) == {"items"} and set(graph["fields"]) == {"adj"}
+    assert "__orig_class__" in box["fields"]
 
 
 def test_an_object_without_a_usable_dict_is_shown_printed() -> None:

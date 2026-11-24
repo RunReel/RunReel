@@ -47,15 +47,36 @@ runreel run app.py -- --n 5
 
 `runreel run --help` lists everything else.
 
+## Use it from your coding agent
+
+`skills/reel` is an [Agent Skill](https://agentskills.io) that teaches coding agents to make reels. The agent picks a small input that reaches every branch, runs RunReel, reads its one-line summary and hands you the reel, saying which steps to watch. It follows the Agent Skills format, so it works with agents that can read skills and run shell commands. Copy the folder to where yours looks for skills:
+
+| Agent | Folder |
+|---|---|
+| Claude Code | `~/.claude/skills/` (or `.claude/skills/` in a project) |
+| Codex | `~/.agents/skills/` (or `.agents/skills/` in a repo) |
+| Antigravity | `~/.gemini/config/skills/` (or `.agents/skills/` in a project) |
+| Cursor | `~/.cursor/skills/` (or `.cursor/skills/` in a project) |
+| GitHub Copilot | `~/.copilot/skills/` (or `.github/skills/` in a repo) |
+
+For example, from your clone:
+
+```sh
+mkdir -p ~/.claude/skills
+cp -r skills/reel ~/.claude/skills/
+```
+
+Then ask for a reel, say "show me this BFS running on a small graph". The agent runs the `runreel` command. If that isn't installed, the agent asks you first, then installs it from PyPI, or runs it from your clone if you have one. The skill has the agent read code before running it, and ask you first when the code came from somewhere else or does more than compute.
+
 ## What works right now
 
 - Python 3.10 or newer. I work on 3.13, and every change is tested on 3.10 through 3.15.
 - Five kinds of picture: arrays (with the variables your code indexes them with, like `i` in `a[i]`, drawn as pointers underneath), grids, binary trees, linked lists, and graphs stored as a dict of neighbour lists, (neighbour, weight) pairs or dicts of weights.
 - A graph lights up the node your code is working on (the `u` in `graph[u]`) and the neighbour it's looking at (the `v` in `for v in graph[u]`), whatever they're called. A dict or list your code indexes by node, like `dist[v]` or `indegree[v]`, is written under each node, and a set of nodes, or a list of True and False, colours the ones visited.
-- Trees and linked lists are recognised by how their objects point at each other, whatever the fields are called. If objects of one class link to each other through one field, that's a linked list. Through two, it's a binary tree, or a doubly linked list if the two point back at each other. With fields called `left` and `right`, or `next` and `prev`, the picture starts from the very first node; with other names, once two nodes are linked.
-- A grid is a list of lists, or a list of strings you index as `grid[r][c]`. It outlines the cell your code is working on, so on a DP table like `dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])` you see which cells it reads to fill the next one. `examples/lcs.py` shows one filling up.
-- A linked list gets a row per chain of nodes, with your variables under the nodes they point at. A `next` pointer that just changed is highlighted, so in `examples/reverse_list.py` you watch the pointers turn round one at a time as the nodes move over to the reversed list. Loops and lists that join up are drawn too.
-- Everything else still shows up in the variables pane, so you can follow any program, just without a drawing.
+- Trees and linked lists are recognised by how their objects point at each other, whatever the fields are called. If objects of one class link to each other through one field, that's a linked list. Through two, it's a binary tree, or a doubly linked list if the two point back at each other. With fields called `left` and `right`, or `next` and `prev`, the picture starts from the very first node. With other names, a linked list shows once two nodes are linked, and a tree once both child fields have held a node.
+- A grid is a list of equal-length lists, or a list of equal-length strings you index as `grid[r][c]`. It outlines the cell your code is working on, so on a DP table like `dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])` you see which cells it reads to fill the next one. `examples/lcs.py` shows one filling up.
+- A linked list gets a row per chain of nodes, with your variables under the nodes they point at. A `next` pointer that just changed is highlighted, so in `examples/reverse_list.py` you watch the nodes move over to the reversed list one at a time, each new pointer lighting up as it goes. Loops and lists that join up are drawn too.
+- Everything else still shows up in the variables pane, in a short form: long values are cut, and a list inside another value shows as `list(…)`.
 - It records the first 5,000 steps, and big collections show their first 200 items.
 - After 5,000 steps the program keeps going unrecorded, until it finishes or has run for a minute (`--timeout` changes that), so an infinite loop won't hang it. Ctrl+C stops it too, and you still get the reel of what ran.
 
@@ -63,7 +84,7 @@ runreel run app.py -- --n 5
 
 Two directions, roughly in parallel:
 
-- **Learning:** more pictures (linked lists, heaps, stacks and queues, hash maps) and a gallery of classic algorithms you can open and play.
+- **Learning:** more pictures (heaps, stacks and queues, hash maps) and a gallery of classic algorithms you can open and play.
 - **Checking code:** point it at a real project and get a short list of anything surprising, like a function that changes its input, an exception that gets swallowed, or a file or network call you didn't expect. And `pytest --reel`, which turns a failing test into a reel that opens at the failure.
 
 C++ and JavaScript come after that.

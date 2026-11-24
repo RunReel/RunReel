@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import errno
 import io
 import json
 import math
@@ -1417,12 +1418,14 @@ if __name__ == "__main__":
         code = main()
         if sys.stdout is not None:
             sys.stdout.flush()
-    except BrokenPipeError:  # whatever read the output, such as head, stopped early
+    except OSError as error:
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
-        code = 0
-    except OSError as error:  # the output can't be written, as on a full disk
-        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
-        if sys.stderr is not None:
-            sys.stderr.write(f"read_reel.py: can't write the output: {error}\n")
-        code = 1
+        # Whatever read the output, such as head, stopped early: a broken pipe, which Windows
+        # reports as EINVAL instead.
+        if isinstance(error, BrokenPipeError) or (os.name == "nt" and error.errno == errno.EINVAL):
+            code = 0
+        else:  # the output can't be written, as on a full disk
+            if sys.stderr is not None:
+                sys.stderr.write(f"read_reel.py: can't write the output: {error}\n")
+            code = 1
     sys.exit(code)

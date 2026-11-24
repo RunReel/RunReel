@@ -644,15 +644,16 @@ def test_read_reel_reports_unwritable_output_and_odd_pages(tmp_path: Path, reel:
     page = reel.read_text(encoding="utf-8")
     deep = tmp_path / "deep.html"
     deep.write_text(
-        page.replace('"steps":', '"deep":' + "[" * 100_000 + "]" * 100_000 + ',"steps":', 1)
+        page.replace('"steps":', '"deep":' + "[" * 100_000 + "]" * 100_000 + ',"steps":', 1),
+        encoding="utf-8",  # a reel is UTF-8, whatever the platform's default
     )
     done = run(str(deep))  # too deep for some Pythons' JSON reader, and fine for others
     assert "Traceback" not in done.stderr and (done.returncode == 0 or "damaged" in done.stderr)
     texty = tmp_path / "texty.html"
-    texty.write_text(page.replace('"schema":1', '"schema":"1"', 1))
+    texty.write_text(page.replace('"schema":1', '"schema":"1"', 1), encoding="utf-8")
     assert "damaged" in run(str(texty)).stderr
     cut = tmp_path / "cut.html"
-    cut.write_text(page[: page.index("</script>") + len("</script>")])
+    cut.write_text(page[: page.index("</script>") + len("</script>")], encoding="utf-8")
     done = run(str(cut))
     assert done.returncode == 0 and "won't play" in done.stderr
     if Path("/dev/full").exists():
@@ -680,11 +681,11 @@ def test_read_reel_handles_damage_long_output_and_mistyped_options(
 ) -> None:
     page = reel.read_text(encoding="utf-8")
     cut = tmp_path / "cut.reel.html"
-    cut.write_text(page[: page.index("</script>")])
+    cut.write_text(page[: page.index("</script>")], encoding="utf-8")
     done = run(str(cut))
     assert done.returncode == 1 and "is cut short" in done.stderr
     broken = tmp_path / "broken.reel.html"
-    broken.write_text(page.replace('"frames":{"1"', '"frames":{"99"', 1))
+    broken.write_text(page.replace('"frames":{"1"', '"frames":{"99"', 1), encoding="utf-8")
     done = run(str(broken), "--steps")
     assert done.returncode == 1 and "damaged" in done.stderr and "Traceback" not in done.stderr
     assert run("--steps", str(reel)).returncode == 0  # the path taken as the range

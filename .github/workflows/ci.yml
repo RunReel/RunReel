@@ -50,15 +50,74 @@ jobs:
       - name: Lint, type-check and test
         run: make check
 
+  # macOS and Windows: the tests, then the built wheel installed with pipx, the way people
+  # install runreel, making a reel. Lint, type checks and the player's own tests don't depend
+  # on the platform, so they stay on Linux. Python 3.10 records with sys.settrace and 3.15
+  # with sys.monitoring.
+  other-os:
+    name: test (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+        python: ["3.10", "3.15"]
+    defaults:
+      run:
+        shell: bash
+    env:
+      UV_LOCKED: "1" # fail if uv.lock is out of date instead of rewriting it
+      PYTHON: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.0"
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: player/package-lock.json
+
+      - name: Install
+        run: |
+          uv sync
+          npm ci --prefix player
+
+      # What make build does, spelt out, since Windows has no make.
+      - name: Build the player
+        run: |
+          npm run build --prefix player
+          mkdir -p src/runreel/_player
+          cp player/dist/player.js src/runreel/_player/player.js
+
+      - name: Test
+        run: uv run pytest
+
+      - name: Install the wheel with pipx and make a reel
+        run: |
+          uv build --wheel
+          pipx install --python "$(uv python find "$PYTHON")" dist/runreel-*.whl
+          runreel run examples/dijkstra.py --call "dijkstra(G, 0)" --out pipx-check.reel.html
+          grep -q 'RunReelPlayer.mount(' pipx-check.reel.html
+
   # One stable name for the main branch's required status check, whatever the matrix holds.
   check:
     name: check
     if: always()
-    needs: test
+    needs: [test, other-os]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Every Python version passed
+      - name: Every job passed
         env:
-          RESULT: ${{ needs.test.result }}
-        run: test "$RESULT" = success
+          LINUX: ${{ needs.test.result }}
+          OTHER: ${{ needs.other-os.result }}
+        run: test "$LINUX" = success && test "$OTHER" = success

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
+import subprocess
 import sys
 import webbrowser
 from collections.abc import Sequence
@@ -149,13 +151,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def hint(words: list[str], unknown: list[str], program: list[str], args: argparse.Namespace) -> str:
     """How to give unrecognized arguments to the program instead: the same command with -- put
-    before the first of them, when that comes after FILE."""
+    before the first of them, when that comes after FILE, quoted for the shell in use: cmd or
+    PowerShell on Windows, a POSIX shell elsewhere."""
     if args.command != "run":
         return ""
     at = words.index(unknown[0])
     if not any(Path(word) == args.file for word in words[:at]):
         return "; arguments for the program go after FILE and --"
-    example = shlex.join(["runreel", *words[:at], "--", *words[at:], *program])
+    command = ["runreel", *words[:at], "--", *words[at:], *program]
+    example = subprocess.list2cmdline(command) if os.name == "nt" else shlex.join(command)
     return f"; if they're for the program, put them after --: {example}"
 
 

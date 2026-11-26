@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -142,14 +144,15 @@ def test_arguments_after_a_double_dash_go_to_the_program(
 def test_a_program_option_before_the_double_dash_is_refused_with_a_hint(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    script = tmp_path / "args.py"
+    script = tmp_path / "my args.py"  # a space, so the command it suggests must quote the path
     script.write_text("import sys\nprint(sys.argv[1:])\n")
     with pytest.raises(SystemExit) as exc:
         main(["run", str(script), "--n", "5"])  # once taken for --no-mark, as an abbreviation
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert "unrecognized arguments: --n" in err
-    assert f"put them after --: runreel run {script} -- --n 5\n" in err
+    quoted = f'"{script}"' if os.name == "nt" else shlex.quote(str(script))  # as each shell needs
+    assert f"put them after --: runreel run {quoted} -- --n 5\n" in err
     assert not script.with_suffix(".reel.html").exists()
 
 

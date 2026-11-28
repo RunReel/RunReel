@@ -147,6 +147,39 @@ def test_anything_the_program_raises_is_its_error(tmp_path: Path) -> None:
     assert trace["error"] == "CancelledError" and "stopped" not in trace
 
 
+def test_environment_values_never_reach_the_trace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Reels get shared, and the environment holds keys and tokens: os.environ and os.environb
+    # are shown by name wherever they turn up, never with their values.
+    planted = "planted-7f3a9c-value"
+    monkeypatch.setenv("RUNREEL_PLANTED", planted)
+    text = (
+        "import os\n\n"
+        "class Box:\n    def __init__(self, env):\n        self.env = env\n\n"
+        "def f():\n"
+        "    env = os.environ\n"
+        "    raw = getattr(os, 'environb', None)\n"
+        "    box = Box(env)\n"
+        "    held = [env, raw]\n"
+        "    named = {'env': env, 'raw': raw}\n"
+        "    get = env.get\n"
+        "    return env\n\n"
+        "def g():\n    return 1\n"
+    )
+    path = program(tmp_path, text)
+    trace = record(path, "f()")
+    assert planted not in dumps(trace)
+    shown = {obj["v"] for s in states(trace) for obj in s["heap"].values() if obj["t"] == "repr"}
+    assert "os.environ (values not recorded)" in shown
+    assert "<bound method Mapping.get of os.environ (values not recorded)>" in shown
+    if hasattr(os, "environb"):
+        assert "os.environb (values not recorded)" in shown
+    # A result that no step held is stored printed, and os.environ printed lists every value.
+    result = record(path, "(g(), os.environ, [os.environ])")["result"]
+    assert result == ("(1, os.environ (values not recorded), [os.environ (values not recorded)])")
+
+
 def test_the_result_and_error_are_described_after_recording_stops(tmp_path: Path) -> None:
     # So the program's own __repr__ and __str__ add no steps, and a broken one falls back.
     path = program(

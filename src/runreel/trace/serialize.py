@@ -13,11 +13,16 @@ Reading an object never runs the program's own code, so recording can't change w
 program does: a container whose class redefines how it's read (its __len__, __iter__, keys or
 values) is read through the built-in type's methods, and fields come straight from where they
 are stored, without properties or a custom __getattribute__ running.
+
+Reels get shared, so os.environ and os.environb are shown by name only, wherever they turn up:
+the environment holds keys and tokens, and a program that merely keeps os.environ in a variable
+would otherwise put every one of them in its reel.
 """
 
 from __future__ import annotations
 
 import math
+import os
 import re
 import types
 from collections import deque
@@ -60,6 +65,23 @@ _OPAQUE = (
     types.FrameType,
     types.GeneratorType,
 )
+_ENVIRON = os._Environ  # the class of os.environ and os.environb
+# How printed() writes a built-in container, as (opening, closing), so that what it holds is
+# printed by printed() too, rather than by the container's repr().
+_BRACKETS: dict[type, tuple[str, str]] = {
+    list: ("[", "]"),
+    tuple: ("(", ")"),
+    set: ("{", "}"),
+    frozenset: ("frozenset({", "})"),
+    dict: ("{", "}"),
+}
+_EMPTY: dict[type, str] = {
+    list: "[]",
+    tuple: "()",
+    set: "set()",
+    frozenset: "frozenset()",
+    dict: "{}",
+}
 
 Kind = Literal["seq", "map", "obj", "repr"]
 
@@ -193,7 +215,7 @@ class Serializer:
         kind = _kind(x)
         if kind == "repr":
             self._made += 1
-            return {"t": "repr", "cls": type(x).__name__, "v": _repr(x)}
+            return {"t": "repr", "cls": type(x).__name__, "v": printed(x)}
         size, parts = _parts(x, kind, self.max_items, self._reader(type(x)))
         sent = self._sent.get(oid)
         if (
@@ -265,6 +287,8 @@ class Serializer:
 def _kind(x: object) -> Kind:
     """What x becomes in the heap, decided from its class, never by asking x itself."""
     cls = type(x)
+    if _ENVIRON in cls.__mro__:
+        return "repr"  # printed by name, since its fields hold every value
     if issubclass(cls, dict):
         return "map"
     if issubclass(cls, tuple) and hasattr(cls, "_fields"):
@@ -362,10 +386,65 @@ def _slots(cls: type) -> list[str]:
     return names
 
 
-def _repr(x: object) -> str:
-    try:
-        text = repr(x)
-    except Exception:
-        text = _digits(x) if type(x) is int else f"<{type(x).__name__} object>"
-    text = without_addresses(text)
+def printed(x: object) -> str:
+    """x's printed form, as a trace shows an object it can't show part by part, or a call's
+    result that no step held: without memory addresses, cut to MAX_REPR characters, and with an
+    environment named instead of listed, even inside a container or as a method's receiver."""
+    text = without_addresses(_printed(x, set()))
     return text if len(text) <= MAX_REPR else text[:MAX_REPR] + "…"
+
+
+def _printed(x: object, around: set[int]) -> str:
+    """x printed; around holds the ids of the containers being printed that hold x."""
+    cls = type(x)
+    if _ENVIRON in cls.__mro__:
+        return _environ(x)
+    if cls is types.MethodType:
+        method = cast(types.MethodType, x)
+        if _ENVIRON in type(method.__self__).__mro__:
+            func = method.__func__
+            name = func.__qualname__ if type(func) is types.FunctionType else type(func).__name__
+            return f"<bound method {name} of {_environ(method.__self__)}>"
+    if cls in _BRACKETS:
+        return _printed_items(x, cls, around)
+    try:
+        return repr(x)
+    except Exception:
+        return _digits(cast(int, x)) if cls is int else f"<{cls.__name__} object>"
+
+
+def _printed_items(x: Any, cls: type, around: set[int]) -> str:
+    """A built-in container printed as repr() prints it, except that what it holds is printed
+    by _printed(), and printing stops once it has passed MAX_REPR characters."""
+    if id(x) in around:
+        return "{...}" if cls is dict else "[...]"  # Python's form for a container in itself
+    if not len(x):
+        return _EMPTY[cls]
+    around.add(id(x))
+    try:
+        if cls is dict:
+            items = (f"{_printed(k, around)}: {_printed(v, around)}" for k, v in x.items())
+        else:
+            items = (_printed(item, around) for item in x)
+        parts: list[str] = []
+        used = 0
+        for part in items:
+            parts.append(part)
+            used += len(part) + 2
+            if used > MAX_REPR:
+                break
+    finally:
+        around.discard(id(x))
+    opening, closing = _BRACKETS[cls]
+    if cls is tuple and len(x) == 1:
+        closing = ",)"
+    return opening + ", ".join(parts) + closing
+
+
+def _environ(env: object) -> str:
+    """An environment mapping, named without its values."""
+    if env is os.environ:
+        return "os.environ (values not recorded)"
+    if env is getattr(os, "environb", None):
+        return "os.environb (values not recorded)"
+    return f"{type(env).__name__} (values not recorded)"

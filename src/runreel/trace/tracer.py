@@ -26,7 +26,7 @@ from runreel.trace.codec import encode
 from runreel.trace.deadline import Deadline, TimeUp
 from runreel.trace.events import Backend, open_source
 from runreel.trace.model import Event, Frame, State, Trace, Value
-from runreel.trace.serialize import Serializer, without_addresses
+from runreel.trace.serialize import Serializer, printed, without_addresses
 
 if TYPE_CHECKING:
     from _typeshed import ReadableBuffer
@@ -223,14 +223,12 @@ class _Recorder:
         self._ran: set[int] = set()  # id() of each frame that has run since the last step
 
     def result(self, value: object) -> Value:
-        """The call's return value. It is a heap object only if some state already showed it."""
+        """The call's return value. It is a heap object only if some state already showed it;
+        otherwise it is stored printed, as the heap prints objects it can't show part by part."""
         result = self.serializer.value(value)
         shown = self.states[-1]["heap"] if self.states else {}
         if isinstance(result, dict) and "ref" in result and result["ref"] not in shown:
-            try:
-                return repr(value)[:200]
-            except Exception:
-                return f"<{type(value).__name__} object>"  # its __repr__ failed
+            return printed(value)
         return result
 
     def step(self, frame: FrameType, event: str, line: int, value: object = None) -> None:

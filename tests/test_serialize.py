@@ -13,7 +13,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from runreel.trace.model import HeapObject, Value
-from runreel.trace.serialize import MAX_STR, Serializer
+from runreel.trace.serialize import MAX_REPR, MAX_STR, Serializer, printed
 
 
 def snapshot(*roots: object, **options: int) -> tuple[list[Value], dict[int, HeapObject]]:
@@ -72,6 +72,33 @@ def test_only_an_address_that_ends_a_printed_form_is_dropped() -> None:
 def test_long_strings_are_cut() -> None:
     (value,), _ = snapshot("x" * (MAX_STR + 5))
     assert value == "x" * MAX_STR + "…"
+
+
+def test_built_in_containers_print_as_python_prints_them() -> None:
+    # printed() writes these out itself, so what they hold can't print an environment's values.
+    looped: list[object] = [1]
+    looped.append(looped)
+    nested: dict[str, object] = {}
+    nested["self"] = nested
+    for value in [
+        [],
+        (),
+        set(),
+        frozenset(),
+        {},
+        (1,),
+        (1, "a"),
+        [1, [2, "b"], (3.5, None)],
+        {"k": (1, 2.0), 2: [True]},
+        {7},
+        frozenset({8}),
+        looped,
+        nested,
+        b"raw",
+    ]:
+        assert printed(value) == repr(value), value
+    long = list(range(200))
+    assert printed(long) == repr(long)[:MAX_REPR] + "…"
 
 
 def test_containers_become_heap_objects() -> None:

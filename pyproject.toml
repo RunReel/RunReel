@@ -1,6 +1,6 @@
 [project]
 name = "runreel"
-version = "0.1.0"
+version = "0.1.1"
 description = "See what your AI actually wrote: turn any algorithm into an interactive step-through reel."
 readme = "README.md"
 authors = [{ name = "dsyz2007" }]
